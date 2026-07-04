@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cuenta bloqueada</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f4f6fb;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #1f2937;
+    }
+    .wrapper {
+      width: 100%;
+      padding: 24px 16px;
+    }
+    .card {
+      max-width: 620px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+      border: 1px solid #e5e7eb;
+    }
+    .hero {
+      padding: 24px 32px 20px;
+      background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+      color: #ffffff;
+    }
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #fbbf24;
+      margin-bottom: 4px;
+    }
+    .hero h1 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.2;
+    }
+    .content {
+      padding: 6px 32px 30px;
+    }
+    .content p {
+      margin: 0 0 12px;
+      line-height: 1.7;
+      font-size: 15px;
+      color: #374151;
+    }
+    .code-box {
+      margin: 20px 0 18px;
+      padding: 20px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fff7ed 0%, #fff1d6 100%);
+      border: 1px solid #fed7aa;
+      text-align: center;
+    }
+    .code-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #c2410c;
+      margin-bottom: 10px;
+    }
+    .unlock-code {
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: 0.25em;
+      color: #9a3412;
+      font-family: "Courier New", Courier, monospace;
+    }
+    .details {
+      background: #f9fafb;
+      border-radius: 14px;
+      padding: 16px 18px;
+      margin-top: 18px;
+      border: 1px solid #e5e7eb;
+    }
+    .details p {
+      margin-bottom: 10px;
+    }
+    .details ul {
+      margin: 0;
+      padding-left: 18px;
+      color: #374151;
+      line-height: 1.7;
+    }
+    .footer {
+      padding: 16px 32px 22px;
+      border-top: 1px solid #e5e7eb;
+      background: #fcfcfd;
+      font-size: 12px;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+    @media only screen and (max-width: 640px) {
+      .hero,
+      .content,
+      .footer {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+      .hero h1 {
+        font-size: 23px;
+      }
+      .unlock-code {
+        font-size: 26px;
+        letter-spacing: 0.15em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="hero">
+        <div class="eyebrow">Cashy Security</div>
+        <h1>Tu cuenta fue bloqueada temporalmente</h1>
+      </div>
+
+
+      <div class="content">
+        <p>Hola {{name}},</p>
+        {{#if isResend}}
+        <p>Solicitaste un nuevo código porque tu cuenta sigue bloqueada. Usa este código reciente para volver a habilitarla desde la aplicación.</p>
+        {{else}}
+        <p>Detectamos múltiples intentos fallidos de acceso y, por seguridad, bloqueamos temporalmente la cuenta asociada a <strong>{{email}}</strong>.</p>
+        <p>Usa el siguiente código de 6 dígitos para volver a habilitarla desde la aplicación:</p>
+        {{/if}}
+
+        <div class="code-box">
+          <div class="code-label">Código de desbloqueo</div>
+          <div class="unlock-code">{{code}}</div>
+        </div>
+
+        <div class="details">
+          <p><strong>Importante</strong></p>
+          <ul>
+            <li>Este código vence en: <strong>{{ttlMinutes}} minutos</strong>.</li>
+            <li>Si no fuiste tú, ignora este correo y revisa tu cuenta.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer">
+        Este es un correo automático de seguridad. No respondas este mensaje.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
