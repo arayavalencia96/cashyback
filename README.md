@@ -1,6 +1,6 @@
 # cashyback
 
-Backend NestJS para bloqueo y desbloqueo de usuarios con Firebase Authentication, Firestore y envío de correos por SMTP.
+Backend NestJS para bloqueo y desbloqueo de usuarios con Firebase Authentication, Firestore y envío de correos por Brevo.
 
 ## Que hace
 
@@ -39,7 +39,7 @@ Todos los endpoints responden con este formato:
 - npm
 - Una cuenta de Firebase con Authentication habilitado
 - Un archivo de servicio de Firebase Admin
-- Una cuenta SMTP para enviar correos
+- Una cuenta en Brevo para enviar correos
 
 ## Configuracion local
 
@@ -57,36 +57,13 @@ npm install
 PORT=3000
 
 FIREBASE_CREDENTIALS_PATH=./configuration-firebase.json
-FIREBASE_DATABASE_ID=
 
-MAIL_HOST=smtp.gmail.com
-MAIL_USER=tu_correo@gmail.com
-MAIL_PASS=xxxx xxxx xxxx xxxx
-MAIL_FROM="YourApp <tu_correo@gmail.com>"
-MAIL_PORT=587
-MAIL_SECURE=false
+BREVO_API_KEY=tu_api_key_de_brevo
+BREVO_SENDER_EMAIL=tu_correo_verificado@tudominio.com
+BREVO_SENDER_NAME=YourApp
 MAIL_SUPPORT=example@tudominio.com
+MAIL_FROM=App Name <example@gmail.com>
 ```
-
-## Variables de entorno
-
-### Firebase
-
-- `FIREBASE_CREDENTIALS_PATH`
-- `FIREBASE_DATABASE_ID`
-
-### Mail
-
-- `MAIL_HOST`
-- `MAIL_USER`
-- `MAIL_PASS`
-- `MAIL_FROM`
-
-Opcionales:
-
-- `MAIL_PORT`
-- `MAIL_SECURE`
-- `MAIL_SUPPORT`
 
 ## Archivo de Firebase
 
@@ -162,16 +139,11 @@ Body:
 
 Sirve para bloquear o habilitar una cuenta manualmente.
 
-## Formato de fechas
-
-- Las fechas de expiracion se devuelven en formato `DD/MM/YYYY HH:MM:SS`.
-- La zona horaria usada es `America/Argentina/Buenos_Aires`.
-
 ## Estructura relevante
 
 - `src/main.ts` bootstrap de la app y carga de `.env`
 - `src/app.module.ts` modulo raiz
-- `src/common/` servicios compartidos, SMTP, Firebase y templates
+- `src/common/` servicios compartidos, Brevo, Firebase y templates
 - `src/common/templates/` templates HTML de correos
 - `src/user/` flujo de bloqueo, verificacion y estado de usuario
 
@@ -187,31 +159,3 @@ npm run test
 npm run test:e2e
 npm run test:cov
 ```
-
-## Validaciones recomendadas antes de desplegar
-
-- Verificar que `MAIL_FROM` exista y sea valido.
-- Verificar que `FIREBASE_CREDENTIALS_PATH` apunte al JSON correcto.
-- Verificar que el usuario de Firebase tenga email.
-- Probar el flujo completo:
-  - solicitar codigo
-  - validar codigo incorrecto
-  - validar codigo correcto
-  - reenviar codigo
-
-## Deploy
-
-El proyecto esta listo para un host Node.js.
-
-Puntos importantes para produccion:
-
-- configurar todas las variables de entorno
-- subir el archivo de Firebase por un mecanismo seguro fuera del repo
-- confirmar que el SMTP permita envio desde el `MAIL_FROM`
-
-## Notas de seguridad
-
-- No subas `.env`.
-- No subas `configuration-firebase.json`.
-- No subas archivos de llaves privadas o certificados.
-- Si agregas nuevos secretos, agregalos al `.gitignore`.

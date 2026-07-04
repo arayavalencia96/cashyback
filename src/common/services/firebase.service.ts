@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
+
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
 import { App, cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth, type Auth, type UserRecord } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type { ServiceAccount } from 'firebase-admin';
+
 import { readOptionalEnv, readRequiredEnv } from '../env';
 
 @Injectable()

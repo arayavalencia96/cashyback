@@ -1,6 +1,13 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { MailerService } from '@nestjs-modules/mailer';
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { readOptionalEnv } from '../env';
+
+import { compile } from 'handlebars';
+import { BrevoService } from './brevo.service';
+
 import {
   BlockCodeEmailPayload,
   PasswordResetEmailPayload,
@@ -24,8 +31,14 @@ interface PasswordResetMailContext extends PasswordResetEmailPayload {
 @Injectable()
 export class EmailService {
   private readonly supportEmail: string;
+  private readonly templateDir = join(
+    process.cwd(),
+    'src',
+    'common',
+    'templates',
+  );
 
-  constructor(private readonly mailerService: MailerService) {
+  constructor(private readonly brevoService: BrevoService) {
     this.supportEmail = this.readSupportEmail();
   }
 
@@ -70,11 +83,20 @@ export class EmailService {
     context: BlockCodeMailContext | PasswordResetMailContext;
   }): Promise<void> {
     try {
-      await this.mailerService.sendMail({
+      const htmlContent = this.renderTemplate(input.template, input.context);
+      const replyTo =
+        this.supportEmail.length > 0
+          ? {
+              email: this.supportEmail,
+            }
+          : undefined;
+
+      await this.brevoService.sendTransactionalEmail({
         to: input.to,
         subject: input.subject,
-        template: input.template,
-        context: input.context,
+        htmlContent,
+        name: input.context.name,
+        replyTo,
       });
     } catch (error: unknown) {
       const message =
@@ -86,9 +108,14 @@ export class EmailService {
   }
 
   private readSupportEmail(): string {
-    return (
-      readOptionalEnv('MAIL_SUPPORT') ?? readOptionalEnv('MAIL_FROM') ?? ''
-    );
+    const supportFromEnv =
+      readOptionalEnv('MAIL_SUPPORT') ?? readOptionalEnv('MAIL_FROM');
+
+    if (!supportFromEnv) {
+      return '';
+    }
+
+    return this.extractEmailAddress(supportFromEnv);
   }
 
   private formatArgentinaDateTime(value: string): string {
@@ -113,5 +140,29 @@ export class EmailService {
       parts.find((part) => part.type === type)?.value ?? '';
 
     return `${getPart('day')}/${getPart('month')}/${getPart('year')} ${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
+  }
+
+  private renderTemplate(
+    template: MailTemplateName,
+    context: BlockCodeMailContext | PasswordResetMailContext,
+  ): string {
+    const templatePath = join(this.templateDir, `${template}.hbs`);
+    const templateSource = readFileSync(templatePath, 'utf8');
+    const compiledTemplate = compile(templateSource, {
+      noEscape: true,
+    });
+
+    return compiledTemplate(context);
+  }
+
+  private extractEmailAddress(value: string): string {
+    const regex = /<([^>]+)>/;
+    const parsed = regex.exec(value);
+
+    if (parsed?.[1]) {
+      return parsed[1].trim();
+    }
+
+    return value.trim();
   }
 }

@@ -4,22 +4,26 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+
 import { createHash, randomInt } from 'node:crypto';
+
 import { EmailService } from '../common/services/email.service';
+import { FirebaseAdminService } from 'src/common/services/firebase.service';
+
 import {
   ApiResponse,
   buildErrorResponse,
   buildSuccessResponse,
 } from '../common/api-response';
+
 import {
   BlockCodeEmailPayload,
   PasswordResetEmailPayload,
   ToggleUserStatusPayload,
   UserBlockCodeRecord,
 } from './interfaces/user-block-code.interface';
-import { FirebaseAdminService } from 'src/common/services/firebase.service';
 
-const BLOCK_CODE_TTL_MINUTES = 30;
+const BLOCK_CODE_TTL_MINUTES = 5;
 const BLOCK_CODE_COLLECTION = 'user_block_codes';
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
