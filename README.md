@@ -21,6 +21,7 @@ Base path: `/user`
 - `POST /user/login-attempts/failure`
 - `POST /user/login-attempts/reset`
 - `POST /user/:uid/password-reset/resend`
+- `POST /user/password/manual`
 - `PATCH /user/:uid/status`
 
 ### Respuesta estandar
@@ -131,6 +132,12 @@ Si no esta bloqueado:
 - retorna `result.blocked = false`
 - no envia correo
 
+Si la cuenta ya fue desbloqueada pero todavía falta cambiar la contraseña:
+
+- retorna `result.passwordResetPending = true`
+- retorna un `passwordChangeToken`
+- el frontend debe llevar al usuario a la pantalla manual de cambio de contraseña
+
 ### 1.2 Registrar intento fallido
 
 ```bash
@@ -174,6 +181,23 @@ POST /user/:uid/password-reset/resend
 ```
 
 Se usa cuando el usuario ya valido el codigo de desbloqueo pero necesita volver a recibir el correo para cambiar su contrasena.
+
+### 1.5 Cambiar contraseña manualmente
+
+```bash
+POST /user/password/manual
+```
+
+Body:
+
+```json
+{
+  "token": "token-opaco",
+  "newPassword": "NuevaClave123"
+}
+```
+
+Este endpoint actualiza la contraseña en Firebase Auth sin usar el link de correo.
 
 ### 2. Validar codigo
 

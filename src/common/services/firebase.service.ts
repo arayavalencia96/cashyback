@@ -49,6 +49,14 @@ export class FirebaseAdminService {
     return this.authService.updateUser(uid, { disabled });
   }
 
+  async updateUserPassword(uid: string, password: string): Promise<UserRecord> {
+    return this.authService.updateUser(uid, { password });
+  }
+
+  async revokeRefreshTokens(uid: string): Promise<void> {
+    await this.authService.revokeRefreshTokens(uid);
+  }
+
   async generatePasswordResetLink(email: string): Promise<string> {
     return this.authService.generatePasswordResetLink(email);
   }

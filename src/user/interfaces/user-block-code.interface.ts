@@ -15,6 +15,11 @@ export interface UserBlockCodeRecord {
   verifiedAt?: string;
   passwordResetSentAt?: string;
   passwordResetResendCount?: number;
+  passwordResetPending?: boolean;
+  passwordChangeTokenHash?: string;
+  passwordChangeTokenIssuedAt?: string;
+  passwordChangeTokenExpiresAt?: string;
+  passwordChangedAt?: string;
   updatedAt: string;
 }
 

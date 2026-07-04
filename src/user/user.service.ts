@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { createHash, randomInt } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import type { UserRecord } from 'firebase-admin/auth';
 
 import { EmailService } from '../common/services/email.service';
@@ -25,6 +25,7 @@ import {
 } from './interfaces/user-block-code.interface';
 
 const BLOCK_CODE_TTL_MINUTES = 5;
+const PASSWORD_CHANGE_TOKEN_TTL_HOURS = 24;
 const MAX_LOGIN_ATTEMPTS = 3;
 const BLOCK_CODE_COLLECTION = 'user_block_codes';
 const LOGIN_ATTEMPTS_COLLECTION = 'user_login_attempts';
@@ -43,6 +44,8 @@ export interface VerifyBlockCodeResult {
   disabled: boolean;
   status: 'verified';
   resetLinkSent: boolean;
+  passwordChangeToken: string;
+  passwordChangeTokenExpiresAt: string;
 }
 
 export interface ResendPasswordResetResult {
@@ -73,6 +76,13 @@ export interface ResetLoginAttemptResult {
   attemptCount: 0;
 }
 
+export interface ManualPasswordUpdateResult {
+  uid: string;
+  email: string;
+  passwordUpdated: boolean;
+  passwordChangedAt: string;
+}
+
 interface UserLoginAttemptRecord {
   email: string;
   uid: string;
@@ -90,6 +100,9 @@ export interface CheckBlockStatusResult {
   disabled: boolean;
   codeSent: boolean;
   expiresAt?: string;
+  passwordResetPending?: boolean;
+  passwordChangeToken?: string;
+  passwordChangeTokenExpiresAt?: string;
 }
 
 @Injectable()
@@ -212,6 +225,43 @@ export class UserService {
     }
 
     if (record.status === 'verified') {
+      if (record.passwordResetPending) {
+        const updatedAt = new Date().toISOString();
+        const passwordChangeToken = this.generatePasswordChangeToken();
+        const passwordChangeTokenExpiresAt = new Date(
+          Date.now() + PASSWORD_CHANGE_TOKEN_TTL_HOURS * 60 * 60 * 1000,
+        ).toISOString();
+        const updatedRecord: UserBlockCodeRecord = {
+          ...record,
+          passwordResetPending: true,
+          passwordChangeTokenHash:
+            this.hashPasswordChangeToken(passwordChangeToken),
+          passwordChangeTokenIssuedAt: updatedAt,
+          passwordChangeTokenExpiresAt,
+          updatedAt,
+        };
+
+        await this.firebaseAdminService.firestore
+          .collection(BLOCK_CODE_COLLECTION)
+          .doc(uid)
+          .set(updatedRecord);
+
+        return buildSuccessResponse(
+          {
+            uid,
+            email,
+            disabled: false,
+            status: 'verified',
+            resetLinkSent: false,
+            passwordChangeToken,
+            passwordChangeTokenExpiresAt,
+          },
+          'Cuenta ya verificada',
+          'La cuenta ya fue habilitada previamente y sigue pendiente el cambio de contraseña.',
+          200,
+        );
+      }
+
       return buildSuccessResponse(
         {
           uid,
@@ -219,6 +269,8 @@ export class UserService {
           disabled: false,
           status: 'verified',
           resetLinkSent: false,
+          passwordChangeToken: '',
+          passwordChangeTokenExpiresAt: '',
         },
         'Cuenta ya verificada',
         'La cuenta ya fue habilitada previamente.',
@@ -251,6 +303,10 @@ export class UserService {
     }
 
     const updatedAt = new Date().toISOString();
+    const passwordChangeToken = this.generatePasswordChangeToken();
+    const passwordChangeTokenExpiresAt = new Date(
+      Date.now() + PASSWORD_CHANGE_TOKEN_TTL_HOURS * 60 * 60 * 1000,
+    ).toISOString();
     const verifiedRecord: UserBlockCodeRecord = {
       ...record,
       status: 'verified',
@@ -258,6 +314,11 @@ export class UserService {
       verifiedAt: updatedAt,
       passwordResetSentAt: updatedAt,
       passwordResetResendCount: record.passwordResetResendCount ?? 1,
+      passwordResetPending: true,
+      passwordChangeTokenHash:
+        this.hashPasswordChangeToken(passwordChangeToken),
+      passwordChangeTokenIssuedAt: updatedAt,
+      passwordChangeTokenExpiresAt,
       updatedAt,
     };
 
@@ -286,6 +347,8 @@ export class UserService {
         disabled: false,
         status: 'verified',
         resetLinkSent: true,
+        passwordChangeToken,
+        passwordChangeTokenExpiresAt,
       },
       'Cuenta habilitada',
       'El código fue validado y se envió el enlace para cambiar la contraseña.',
@@ -320,7 +383,11 @@ export class UserService {
       );
     }
 
-    if (record.status !== 'verified' || record.disabled) {
+    if (
+      record.status !== 'verified' ||
+      record.disabled ||
+      !record.passwordResetPending
+    ) {
       throw new BadRequestException(
         buildErrorResponse(
           'Usuario no habilitado',
@@ -366,6 +433,104 @@ export class UserService {
     );
   }
 
+  async updatePasswordManually(
+    token: string,
+    newPassword: string,
+  ): Promise<ApiResponse<ManualPasswordUpdateResult>> {
+    const trimmedToken = token?.trim();
+
+    if (!trimmedToken) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Token invalido',
+          'Debes enviar un token valido para cambiar la contraseña.',
+          400,
+        ),
+      );
+    }
+
+    if (!this.isValidPassword(newPassword)) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Contraseña invalida',
+          'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número.',
+          400,
+        ),
+      );
+    }
+
+    const tokenHash = this.hashPasswordChangeToken(trimmedToken);
+    const record =
+      await this.findBlockRecordByPasswordChangeTokenHash(tokenHash);
+
+    if (!record) {
+      throw new NotFoundException(
+        buildErrorResponse(
+          'Solicitud no encontrada',
+          'No existe una solicitud activa de cambio de contraseña.',
+          404,
+        ),
+      );
+    }
+
+    if (
+      record.status !== 'verified' ||
+      record.disabled ||
+      !record.passwordResetPending ||
+      !record.passwordChangeTokenHash ||
+      !record.passwordChangeTokenExpiresAt
+    ) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Solicitud inválida',
+          'Debes verificar el código antes de cambiar la contraseña.',
+          400,
+        ),
+      );
+    }
+
+    if (Date.now() > new Date(record.passwordChangeTokenExpiresAt).getTime()) {
+      throw new GoneException(
+        buildErrorResponse(
+          'Token vencido',
+          'El token de cambio de contraseña venció. Solicita uno nuevo.',
+          410,
+        ),
+      );
+    }
+
+    await this.firebaseAdminService.updateUserPassword(record.uid, newPassword);
+    await this.firebaseAdminService.revokeRefreshTokens(record.uid);
+
+    const passwordChangedAt = new Date().toISOString();
+    const updatedRecord: UserBlockCodeRecord = {
+      ...record,
+      passwordResetPending: false,
+      passwordChangedAt,
+      passwordChangeTokenHash: undefined,
+      passwordChangeTokenIssuedAt: undefined,
+      passwordChangeTokenExpiresAt: undefined,
+      updatedAt: passwordChangedAt,
+    };
+
+    await this.firebaseAdminService.firestore
+      .collection(BLOCK_CODE_COLLECTION)
+      .doc(record.uid)
+      .set(updatedRecord);
+
+    return buildSuccessResponse(
+      {
+        uid: record.uid,
+        email: record.email,
+        passwordUpdated: true,
+        passwordChangedAt,
+      },
+      'Contraseña actualizada',
+      'La contraseña se cambio correctamente desde el frontend.',
+      200,
+    );
+  }
+
   async checkBlockStatusByEmail(
     email: string,
   ): Promise<ApiResponse<CheckBlockStatusResult>> {
@@ -402,6 +567,49 @@ export class UserService {
     const blocked =
       user.disabled ||
       Boolean(record?.disabled && record.status !== 'verified');
+    const passwordResetPending = Boolean(
+      record?.passwordResetPending &&
+      record.status === 'verified' &&
+      !record.disabled,
+    );
+
+    if (passwordResetPending && record) {
+      const updatedAt = new Date().toISOString();
+      const passwordChangeToken = this.generatePasswordChangeToken();
+      const passwordChangeTokenExpiresAt = new Date(
+        Date.now() + PASSWORD_CHANGE_TOKEN_TTL_HOURS * 60 * 60 * 1000,
+      ).toISOString();
+      const updatedRecord: UserBlockCodeRecord = {
+        ...record,
+        passwordResetPending: true,
+        passwordChangeTokenHash:
+          this.hashPasswordChangeToken(passwordChangeToken),
+        passwordChangeTokenIssuedAt: updatedAt,
+        passwordChangeTokenExpiresAt,
+        updatedAt,
+      };
+
+      await this.firebaseAdminService.firestore
+        .collection(BLOCK_CODE_COLLECTION)
+        .doc(user.uid)
+        .set(updatedRecord);
+
+      return buildSuccessResponse(
+        {
+          blocked: false,
+          uid: user.uid,
+          email: user.email ?? normalizedEmail,
+          disabled: user.disabled,
+          codeSent: false,
+          passwordResetPending: true,
+          passwordChangeToken,
+          passwordChangeTokenExpiresAt,
+        },
+        'Contraseña pendiente',
+        'La cuenta ya fue desbloqueada, pero falta cambiar la contraseña.',
+        200,
+      );
+    }
 
     if (!blocked) {
       return buildSuccessResponse(
@@ -411,6 +619,7 @@ export class UserService {
           email: user.email ?? normalizedEmail,
           disabled: user.disabled,
           codeSent: false,
+          passwordResetPending: false,
         },
         'Usuario habilitado',
         'El usuario no está bloqueado y puede continuar con el inicio de sesión.',
@@ -664,6 +873,22 @@ export class UserService {
     return snapshot.data() as UserLoginAttemptRecord;
   }
 
+  private async findBlockRecordByPasswordChangeTokenHash(
+    tokenHash: string,
+  ): Promise<UserBlockCodeRecord | null> {
+    const snapshot = await this.firebaseAdminService.firestore
+      .collection(BLOCK_CODE_COLLECTION)
+      .where('passwordChangeTokenHash', '==', tokenHash)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return null;
+    }
+
+    return snapshot.docs[0].data() as UserBlockCodeRecord;
+  }
+
   private async markBlockCodeExpired(
     uid: string,
     record: UserBlockCodeRecord,
@@ -745,5 +970,17 @@ export class UserService {
 
   private normalizeEmail(email: string | null | undefined): string {
     return email?.trim().toLowerCase() ?? '';
+  }
+
+  private generatePasswordChangeToken(): string {
+    return randomBytes(32).toString('base64url');
+  }
+
+  private hashPasswordChangeToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private isValidPassword(password: string): boolean {
+    return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
   }
 }

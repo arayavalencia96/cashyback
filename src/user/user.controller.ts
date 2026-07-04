@@ -3,6 +3,7 @@ import { UserService } from './user.service';
 import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
 import { SetUserStatusDto } from './dto/set-user-status.dto';
 import { CheckUserBlockStatusDto } from './dto/check-user-block-status.dto';
+import { ManualPasswordUpdateDto } from './dto/manual-password-update.dto';
 
 @Controller('user')
 export class UserController {
@@ -36,6 +37,14 @@ export class UserController {
   @Post(':uid/password-reset/resend')
   resendPasswordResetEmail(@Param('uid') uid: string) {
     return this.userService.resendPasswordResetEmail(uid);
+  }
+
+  @Post('password/manual')
+  updatePasswordManually(@Body() body: ManualPasswordUpdateDto) {
+    return this.userService.updatePasswordManually(
+      body.token,
+      body.newPassword,
+    );
   }
 
   @Patch(':uid/status')
