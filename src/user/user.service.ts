@@ -25,7 +25,9 @@ import {
 } from './interfaces/user-block-code.interface';
 
 const BLOCK_CODE_TTL_MINUTES = 5;
+const MAX_LOGIN_ATTEMPTS = 3;
 const BLOCK_CODE_COLLECTION = 'user_block_codes';
+const LOGIN_ATTEMPTS_COLLECTION = 'user_login_attempts';
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
 export interface RequestBlockCodeResult {
@@ -46,6 +48,32 @@ export interface VerifyBlockCodeResult {
 export interface ToggleUserStatusResult {
   uid: string;
   disabled: boolean;
+}
+
+export interface RegisterLoginAttemptResult {
+  uid: string;
+  email: string;
+  attemptCount: number;
+  remainingAttempts: number;
+  blocked: boolean;
+  codeSent: boolean;
+  expiresAt?: string;
+}
+
+export interface ResetLoginAttemptResult {
+  uid: string;
+  email: string;
+  attemptCount: 0;
+}
+
+interface UserLoginAttemptRecord {
+  email: string;
+  uid: string;
+  attemptCount: number;
+  blocked: boolean;
+  lastAttemptAt: string;
+  updatedAt: string;
+  blockedAt?: string;
 }
 
 export interface CheckBlockStatusResult {
@@ -259,7 +287,7 @@ export class UserService {
   async checkBlockStatusByEmail(
     email: string,
   ): Promise<ApiResponse<CheckBlockStatusResult>> {
-    const normalizedEmail = email?.trim();
+    const normalizedEmail = this.normalizeEmail(email);
 
     if (!normalizedEmail) {
       throw new BadRequestException(
@@ -321,6 +349,139 @@ export class UserService {
       },
       'Usuario bloqueado',
       'Se detectó la cuenta bloqueada y se reenviò un nuevo código de desbloqueo.',
+      200,
+    );
+  }
+
+  async registerFailedLoginAttempt(
+    email: string,
+  ): Promise<ApiResponse<RegisterLoginAttemptResult>> {
+    const normalizedEmail = this.normalizeEmail(email);
+
+    if (!normalizedEmail) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Correo invalido',
+          'Debes enviar un correo valido para registrar el intento fallido.',
+          400,
+        ),
+      );
+    }
+
+    const user = await this.findAuthUserByEmail(normalizedEmail);
+
+    if (!user) {
+      throw new NotFoundException(
+        buildErrorResponse(
+          'Usuario no encontrado',
+          'No existe un usuario registrado con ese correo en Firebase Authentication.',
+          404,
+        ),
+      );
+    }
+
+    const now = new Date().toISOString();
+    const record = await this.getLoginAttemptRecord(normalizedEmail);
+    const attemptCount = (record?.attemptCount ?? 0) + 1;
+    const blocked = attemptCount >= MAX_LOGIN_ATTEMPTS;
+    const nextRecord: UserLoginAttemptRecord = {
+      email: normalizedEmail,
+      uid: user.uid,
+      attemptCount,
+      blocked,
+      lastAttemptAt: now,
+      updatedAt: now,
+      ...(blocked ? { blockedAt: now } : {}),
+    };
+
+    await this.firebaseAdminService.firestore
+      .collection(LOGIN_ATTEMPTS_COLLECTION)
+      .doc(normalizedEmail)
+      .set(nextRecord);
+
+    if (blocked) {
+      const blockCodeResponse = await this.requestBlockCode(user.uid);
+
+      return buildSuccessResponse(
+        {
+          uid: user.uid,
+          email: normalizedEmail,
+          attemptCount,
+          remainingAttempts: 0,
+          blocked: true,
+          codeSent: true,
+          expiresAt: blockCodeResponse.result.expiresAt,
+        },
+        'Usuario bloqueado',
+        'Se supero el limite de intentos fallidos y se envio un nuevo codigo de desbloqueo.',
+        200,
+      );
+    }
+
+    return buildSuccessResponse(
+      {
+        uid: user.uid,
+        email: normalizedEmail,
+        attemptCount,
+        remainingAttempts: MAX_LOGIN_ATTEMPTS - attemptCount,
+        blocked: false,
+        codeSent: false,
+      },
+      'Intento registrado',
+      `Te quedan ${MAX_LOGIN_ATTEMPTS - attemptCount} intento${MAX_LOGIN_ATTEMPTS - attemptCount === 1 ? '' : 's'}.`,
+      200,
+    );
+  }
+
+  async resetLoginAttempts(
+    email: string,
+  ): Promise<ApiResponse<ResetLoginAttemptResult>> {
+    const normalizedEmail = this.normalizeEmail(email);
+
+    if (!normalizedEmail) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Correo invalido',
+          'Debes enviar un correo valido para resetear los intentos.',
+          400,
+        ),
+      );
+    }
+
+    const user = await this.findAuthUserByEmail(normalizedEmail);
+
+    if (!user) {
+      throw new NotFoundException(
+        buildErrorResponse(
+          'Usuario no encontrado',
+          'No existe un usuario registrado con ese correo en Firebase Authentication.',
+          404,
+        ),
+      );
+    }
+
+    const clearedRecord: UserLoginAttemptRecord = {
+      email: normalizedEmail,
+      uid: user.uid,
+      attemptCount: 0,
+      blocked: false,
+      lastAttemptAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.firebaseAdminService.firestore
+      .collection(LOGIN_ATTEMPTS_COLLECTION)
+      .doc(normalizedEmail)
+      .set(clearedRecord);
+
+    return buildSuccessResponse(
+      {
+        uid: user.uid,
+        email: normalizedEmail,
+        attemptCount: 0,
+      },
+      'Intentos reiniciados',
+      'El contador de intentos fallidos quedo en cero.',
       200,
     );
   }
@@ -406,6 +567,21 @@ export class UserService {
     return snapshot.data() as UserBlockCodeRecord;
   }
 
+  private async getLoginAttemptRecord(
+    email: string,
+  ): Promise<UserLoginAttemptRecord | null> {
+    const snapshot = await this.firebaseAdminService.firestore
+      .collection(LOGIN_ATTEMPTS_COLLECTION)
+      .doc(email)
+      .get();
+
+    if (!snapshot.exists) {
+      return null;
+    }
+
+    return snapshot.data() as UserLoginAttemptRecord;
+  }
+
   private async markBlockCodeExpired(
     uid: string,
     record: UserBlockCodeRecord,
@@ -483,5 +659,9 @@ export class UserService {
     const emailPrefix = email.split('@')[0]?.trim();
 
     return emailPrefix && emailPrefix.length > 0 ? emailPrefix : 'usuario';
+  }
+
+  private normalizeEmail(email: string | null | undefined): string {
+    return email?.trim().toLowerCase() ?? '';
   }
 }

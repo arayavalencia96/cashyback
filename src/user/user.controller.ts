@@ -23,6 +23,16 @@ export class UserController {
     return this.userService.checkBlockStatusByEmail(body.email);
   }
 
+  @Post('login-attempts/failure')
+  registerFailedLoginAttempt(@Body() body: CheckUserBlockStatusDto) {
+    return this.userService.registerFailedLoginAttempt(body.email);
+  }
+
+  @Post('login-attempts/reset')
+  resetLoginAttempts(@Body() body: CheckUserBlockStatusDto) {
+    return this.userService.resetLoginAttempts(body.email);
+  }
+
   @Patch(':uid/status')
   setUserStatus(@Param('uid') uid: string, @Body() body: SetUserStatusDto) {
     return this.userService.setUserStatus(uid, body.disabled);

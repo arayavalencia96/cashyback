@@ -18,6 +18,8 @@ Base path: `/user`
 - `POST /user/:uid/block-code`
 - `POST /user/:uid/block-code/verify`
 - `POST /user/block-code/check`
+- `POST /user/login-attempts/failure`
+- `POST /user/login-attempts/reset`
 - `PATCH /user/:uid/status`
 
 ### Respuesta estandar
@@ -127,6 +129,42 @@ Si no esta bloqueado:
 
 - retorna `result.blocked = false`
 - no envia correo
+
+### 1.2 Registrar intento fallido
+
+```bash
+POST /user/login-attempts/failure
+```
+
+Body:
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+Si llega al tercer intento:
+
+- bloquea la cuenta en Firebase Auth
+- envia un nuevo codigo de desbloqueo
+- retorna `result.blocked = true`
+
+### 1.3 Reiniciar intentos
+
+```bash
+POST /user/login-attempts/reset
+```
+
+Body:
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+Se usa despues de un login exitoso para dejar el contador en cero.
 
 ### 2. Validar codigo
 
