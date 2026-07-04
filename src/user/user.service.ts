@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import { createHash, randomInt } from 'node:crypto';
+import type { UserRecord } from 'firebase-admin/auth';
 
 import { EmailService } from '../common/services/email.service';
 import { FirebaseAdminService } from 'src/common/services/firebase.service';
@@ -45,6 +46,15 @@ export interface VerifyBlockCodeResult {
 export interface ToggleUserStatusResult {
   uid: string;
   disabled: boolean;
+}
+
+export interface CheckBlockStatusResult {
+  blocked: boolean;
+  uid: string;
+  email: string;
+  disabled: boolean;
+  codeSent: boolean;
+  expiresAt?: string;
 }
 
 @Injectable()
@@ -246,6 +256,75 @@ export class UserService {
     );
   }
 
+  async checkBlockStatusByEmail(
+    email: string,
+  ): Promise<ApiResponse<CheckBlockStatusResult>> {
+    const normalizedEmail = email?.trim();
+
+    if (!normalizedEmail) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Correo inválido',
+          'Debes enviar un correo válido para consultar el bloqueo.',
+          400,
+        ),
+      );
+    }
+
+    const user = await this.findAuthUserByEmail(normalizedEmail);
+
+    if (!user) {
+      return buildSuccessResponse(
+        {
+          blocked: false,
+          uid: '',
+          email: normalizedEmail,
+          disabled: false,
+          codeSent: false,
+        },
+        'Usuario no bloqueado',
+        'No existe un usuario registrado con ese correo en Firebase Authentication.',
+        200,
+      );
+    }
+
+    const record = await this.getBlockCodeRecord(user.uid);
+    const blocked =
+      user.disabled ||
+      Boolean(record?.disabled && record.status !== 'verified');
+
+    if (!blocked) {
+      return buildSuccessResponse(
+        {
+          blocked: false,
+          uid: user.uid,
+          email: user.email ?? normalizedEmail,
+          disabled: user.disabled,
+          codeSent: false,
+        },
+        'Usuario habilitado',
+        'El usuario no está bloqueado y puede continuar con el inicio de sesión.',
+        200,
+      );
+    }
+
+    const blockCodeResponse = await this.requestBlockCode(user.uid);
+
+    return buildSuccessResponse(
+      {
+        blocked: true,
+        uid: user.uid,
+        email: user.email ?? normalizedEmail,
+        disabled: true,
+        codeSent: true,
+        expiresAt: blockCodeResponse.result.expiresAt,
+      },
+      'Usuario bloqueado',
+      'Se detectó la cuenta bloqueada y se reenviò un nuevo código de desbloqueo.',
+      200,
+    );
+  }
+
   async setUserStatus(
     uid: string,
     disabled: boolean,
@@ -301,6 +380,14 @@ export class UserService {
           404,
         ),
       );
+    }
+  }
+
+  private async findAuthUserByEmail(email: string): Promise<UserRecord | null> {
+    try {
+      return await this.firebaseAdminService.getUserByEmail(email);
+    } catch {
+      return null;
     }
   }
 

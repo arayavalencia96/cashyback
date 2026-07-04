@@ -17,6 +17,7 @@ Base path: `/user`
 
 - `POST /user/:uid/block-code`
 - `POST /user/:uid/block-code/verify`
+- `POST /user/block-code/check`
 - `PATCH /user/:uid/status`
 
 ### Respuesta estandar
@@ -101,6 +102,31 @@ POST /user/:uid/block-code
 ```
 
 Bloquea al usuario y envia el codigo por correo.
+
+### 1.1 Consultar bloqueo por correo
+
+```bash
+POST /user/block-code/check
+```
+
+Body:
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+Si el usuario esta bloqueado:
+
+- retorna `result.blocked = true`
+- reenvia un nuevo codigo de desbloqueo
+- mantiene la cuenta deshabilitada en Firebase Auth
+
+Si no esta bloqueado:
+
+- retorna `result.blocked = false`
+- no envia correo
 
 ### 2. Validar codigo
 

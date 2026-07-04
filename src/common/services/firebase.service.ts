@@ -38,6 +38,10 @@ export class FirebaseAdminService {
     return this.authService.getUser(uid);
   }
 
+  async getUserByEmail(email: string): Promise<UserRecord> {
+    return this.authService.getUserByEmail(email);
+  }
+
   async updateUserDisabled(
     uid: string,
     disabled: boolean,
