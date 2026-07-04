@@ -9,6 +9,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const port = process.env.PORT ?? 3000;
 
+  app.enableCors({
+    origin: ['http://localhost:3000', 'https://cashy-cd3e6.web.app'],
+    credentials: true,
+  });
+
   await app.listen(port, '0.0.0.0');
 }
 void bootstrap();
