@@ -33,6 +33,11 @@ export class UserController {
     return this.userService.resetLoginAttempts(body.email);
   }
 
+  @Post(':uid/password-reset/resend')
+  resendPasswordResetEmail(@Param('uid') uid: string) {
+    return this.userService.resendPasswordResetEmail(uid);
+  }
+
   @Patch(':uid/status')
   setUserStatus(@Param('uid') uid: string, @Body() body: SetUserStatusDto) {
     return this.userService.setUserStatus(uid, body.disabled);

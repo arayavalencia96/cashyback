@@ -45,6 +45,13 @@ export interface VerifyBlockCodeResult {
   resetLinkSent: boolean;
 }
 
+export interface ResendPasswordResetResult {
+  uid: string;
+  email: string;
+  resetLinkSent: boolean;
+  passwordResetResendCount: number;
+}
+
 export interface ToggleUserStatusResult {
   uid: string;
   disabled: boolean;
@@ -249,6 +256,8 @@ export class UserService {
       status: 'verified',
       disabled: false,
       verifiedAt: updatedAt,
+      passwordResetSentAt: updatedAt,
+      passwordResetResendCount: record.passwordResetResendCount ?? 1,
       updatedAt,
     };
 
@@ -280,6 +289,79 @@ export class UserService {
       },
       'Cuenta habilitada',
       'El código fue validado y se envió el enlace para cambiar la contraseña.',
+      200,
+    );
+  }
+
+  async resendPasswordResetEmail(
+    uid: string,
+  ): Promise<ApiResponse<ResendPasswordResetResult>> {
+    const user = await this.findAuthUser(uid);
+    const record = await this.getBlockCodeRecord(uid);
+    const email = user.email ?? record?.email ?? '';
+
+    if (!email) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Correo no disponible',
+          'No se pudo resolver el correo del usuario para reenviar el enlace de contrasena.',
+          400,
+        ),
+      );
+    }
+
+    if (!record) {
+      throw new NotFoundException(
+        buildErrorResponse(
+          'Solicitud no encontrada',
+          'Primero debes solicitar y validar un codigo de desbloqueo.',
+          404,
+        ),
+      );
+    }
+
+    if (record.status !== 'verified' || record.disabled) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Usuario no habilitado',
+          'Debes validar el codigo de desbloqueo antes de reenviar el correo de contrasena.',
+          400,
+        ),
+      );
+    }
+
+    const resetLink =
+      await this.firebaseAdminService.generatePasswordResetLink(email);
+    const updatedAt = new Date().toISOString();
+    const resendCount = (record.passwordResetResendCount ?? 1) + 1;
+    const updatedRecord: UserBlockCodeRecord = {
+      ...record,
+      passwordResetSentAt: updatedAt,
+      passwordResetResendCount: resendCount,
+      updatedAt,
+    };
+
+    await this.firebaseAdminService.firestore
+      .collection(BLOCK_CODE_COLLECTION)
+      .doc(uid)
+      .set(updatedRecord);
+
+    await this.emailService.sendPasswordResetEmail({
+      uid,
+      email,
+      resetLink,
+      name: this.resolveDisplayName(user.displayName, email),
+    });
+
+    return buildSuccessResponse(
+      {
+        uid,
+        email,
+        resetLinkSent: true,
+        passwordResetResendCount: resendCount,
+      },
+      'Correo reenviado',
+      'Se envio nuevamente el enlace para cambiar la contrasena.',
       200,
     );
   }

@@ -20,6 +20,7 @@ Base path: `/user`
 - `POST /user/block-code/check`
 - `POST /user/login-attempts/failure`
 - `POST /user/login-attempts/reset`
+- `POST /user/:uid/password-reset/resend`
 - `PATCH /user/:uid/status`
 
 ### Respuesta estandar
@@ -165,6 +166,14 @@ Body:
 ```
 
 Se usa despues de un login exitoso para dejar el contador en cero.
+
+### 1.4 Reenviar correo de contrasena
+
+```bash
+POST /user/:uid/password-reset/resend
+```
+
+Se usa cuando el usuario ya valido el codigo de desbloqueo pero necesita volver a recibir el correo para cambiar su contrasena.
 
 ### 2. Validar codigo
 

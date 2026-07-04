@@ -13,6 +13,8 @@ export interface UserBlockCodeRecord {
   name: string;
   attemptCount: number;
   verifiedAt?: string;
+  passwordResetSentAt?: string;
+  passwordResetResendCount?: number;
   updatedAt: string;
 }
 
