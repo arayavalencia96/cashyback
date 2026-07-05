@@ -574,6 +574,41 @@ export class UserService {
     );
 
     if (passwordResetPending && record) {
+      const changedAt = this.getTokensValidAfterDate(user.tokensValidAfterTime);
+      const sentAt = this.getRecordDate(record.passwordResetSentAt);
+
+      if (changedAt && sentAt && changedAt > sentAt) {
+        const updatedAt = changedAt.toISOString();
+        const updatedRecord: UserBlockCodeRecord = {
+          ...record,
+          passwordResetPending: false,
+          passwordChangedAt: updatedAt,
+          passwordChangeTokenHash: undefined,
+          passwordChangeTokenIssuedAt: undefined,
+          passwordChangeTokenExpiresAt: undefined,
+          updatedAt,
+        };
+
+        await this.firebaseAdminService.firestore
+          .collection(BLOCK_CODE_COLLECTION)
+          .doc(user.uid)
+          .set(updatedRecord);
+
+        return buildSuccessResponse(
+          {
+            blocked: false,
+            uid: user.uid,
+            email: user.email ?? normalizedEmail,
+            disabled: user.disabled,
+            codeSent: false,
+            passwordResetPending: false,
+          },
+          'Contraseña actualizada',
+          'Se detectó que la contraseña ya fue cambiada y la cuenta puede ingresar.',
+          200,
+        );
+      }
+
       const updatedAt = new Date().toISOString();
       const passwordChangeToken = this.generatePasswordChangeToken();
       const passwordChangeTokenExpiresAt = new Date(
@@ -887,6 +922,26 @@ export class UserService {
     }
 
     return snapshot.docs[0].data() as UserBlockCodeRecord;
+  }
+
+  private getTokensValidAfterDate(value: string | undefined): Date | null {
+    if (!value) {
+      return null;
+    }
+
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private getRecordDate(value: string | undefined): Date | null {
+    if (!value) {
+      return null;
+    }
+
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   private async markBlockCodeExpired(
