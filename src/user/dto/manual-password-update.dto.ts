@@ -1,4 +1,5 @@
 export class ManualPasswordUpdateDto {
-  token!: string;
+  sessionId?: string;
+  token?: string;
   newPassword!: string;
 }

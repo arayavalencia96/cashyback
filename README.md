@@ -8,7 +8,7 @@ Backend NestJS para bloqueo y desbloqueo de usuarios con Firebase Authentication
 - Genera y valida codigos de desbloqueo.
 - Guarda el estado del codigo en Firestore.
 - Envia correo con template HTML.
-- Genera link de reseteo de contraseña cuando el codigo se valida correctamente.
+- Genera link de reseteo de contraseña propio del frontend cuando el codigo se valida correctamente.
 - Permite habilitar o deshabilitar cuentas manualmente.
 
 ## Endpoints
@@ -68,11 +68,13 @@ BREVO_SENDER_EMAIL=tu_correo_verificado@tudominio.com
 BREVO_SENDER_NAME=YourApp
 MAIL_SUPPORT=example@tudominio.com
 MAIL_FROM=App Name <example@gmail.com>
+FRONTEND_URL=http://localhost:4200
 ```
 
 ## Archivo de Firebase
 
 `FIREBASE_CREDENTIALS_PATH` debe apuntar al archivo JSON del service account.
+`FRONTEND_URL` debe apuntar al frontend que recibe el enlace de cambio de contraseña.
 
 Ejemplo:
 

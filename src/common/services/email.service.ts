@@ -15,6 +15,7 @@ import {
 
 type MailTemplateName = 'user-blocked' | 'password-reset';
 const BLOCK_CODE_TTL_MINUTES = 5;
+const PASSWORD_RECOVERY_SESSION_TTL_MINUTES = 10;
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
 interface BlockCodeMailContext extends BlockCodeEmailPayload {
@@ -26,6 +27,8 @@ interface BlockCodeMailContext extends BlockCodeEmailPayload {
 
 interface PasswordResetMailContext extends PasswordResetEmailPayload {
   supportEmail: string;
+  ttlMinutes: number;
+  expiresAtFormatted: string;
 }
 
 @Injectable()
@@ -65,6 +68,10 @@ export class EmailService {
   async sendPasswordResetEmail(
     payload: PasswordResetEmailPayload,
   ): Promise<void> {
+    const expiresAt = new Date(
+      Date.now() + PASSWORD_RECOVERY_SESSION_TTL_MINUTES * 60 * 1000,
+    ).toISOString();
+
     await this.sendMail({
       to: payload.email,
       subject: 'Restablecer contrasena',
@@ -72,6 +79,8 @@ export class EmailService {
       context: {
         ...payload,
         supportEmail: this.supportEmail,
+        ttlMinutes: PASSWORD_RECOVERY_SESSION_TTL_MINUTES,
+        expiresAtFormatted: this.formatArgentinaDateTime(expiresAt),
       },
     });
   }

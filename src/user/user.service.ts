@@ -16,19 +16,23 @@ import {
   buildErrorResponse,
   buildSuccessResponse,
 } from '../common/api-response';
+import { readOptionalEnv } from '../common/env';
 
 import {
   BlockCodeEmailPayload,
   PasswordResetEmailPayload,
+  PasswordRecoverySessionRecord,
   ToggleUserStatusPayload,
   UserBlockCodeRecord,
 } from './interfaces/user-block-code.interface';
 
 const BLOCK_CODE_TTL_MINUTES = 5;
-const PASSWORD_CHANGE_TOKEN_TTL_HOURS = 24;
+const PASSWORD_RECOVERY_SESSION_TTL_MINUTES = 10;
 const MAX_LOGIN_ATTEMPTS = 3;
 const BLOCK_CODE_COLLECTION = 'user_block_codes';
 const LOGIN_ATTEMPTS_COLLECTION = 'user_login_attempts';
+const PASSWORD_RECOVERY_SESSION_COLLECTION =
+  'user_password_recovery_sessions';
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
 export interface RequestBlockCodeResult {
@@ -44,8 +48,6 @@ export interface VerifyBlockCodeResult {
   disabled: boolean;
   status: 'verified';
   resetLinkSent: boolean;
-  passwordChangeToken: string;
-  passwordChangeTokenExpiresAt: string;
 }
 
 export interface ResendPasswordResetResult {
@@ -93,6 +95,18 @@ interface UserLoginAttemptRecord {
   blockedAt?: string;
 }
 
+interface PasswordRecoverySessionSnapshot extends PasswordRecoverySessionRecord {
+  sessionIdHash: string;
+}
+
+function stripUndefinedFields<T extends object>(
+  value: T,
+): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as Partial<T>;
+}
+
 export interface CheckBlockStatusResult {
   blocked: boolean;
   uid: string;
@@ -101,8 +115,6 @@ export interface CheckBlockStatusResult {
   codeSent: boolean;
   expiresAt?: string;
   passwordResetPending?: boolean;
-  passwordChangeToken?: string;
-  passwordChangeTokenExpiresAt?: string;
 }
 
 @Injectable()
@@ -226,25 +238,32 @@ export class UserService {
 
     if (record.status === 'verified') {
       if (record.passwordResetPending) {
-        const updatedAt = new Date().toISOString();
-        const passwordChangeToken = this.generatePasswordChangeToken();
-        const passwordChangeTokenExpiresAt = new Date(
-          Date.now() + PASSWORD_CHANGE_TOKEN_TTL_HOURS * 60 * 60 * 1000,
-        ).toISOString();
-        const updatedRecord: UserBlockCodeRecord = {
-          ...record,
-          passwordResetPending: true,
-          passwordChangeTokenHash:
-            this.hashPasswordChangeToken(passwordChangeToken),
-          passwordChangeTokenIssuedAt: updatedAt,
-          passwordChangeTokenExpiresAt,
-          updatedAt,
-        };
+        const activeSession =
+          await this.findActivePasswordRecoverySessionByUid(uid);
 
-        await this.firebaseAdminService.firestore
-          .collection(BLOCK_CODE_COLLECTION)
-          .doc(uid)
-          .set(updatedRecord);
+        if (
+          !activeSession ||
+          Date.now() > new Date(activeSession.expiresAt).getTime()
+        ) {
+          if (activeSession) {
+            await this.markPasswordRecoverySessionExpired(activeSession);
+          }
+
+          await this.requestBlockCode(uid);
+
+          return buildSuccessResponse(
+            {
+              uid,
+              email,
+              disabled: false,
+              status: 'verified',
+              resetLinkSent: false,
+            },
+            'Verificacion vencida',
+            'La recuperacion vencio. Debes solicitar un nuevo codigo de desbloqueo.',
+            200,
+          );
+        }
 
         return buildSuccessResponse(
           {
@@ -253,13 +272,11 @@ export class UserService {
             disabled: false,
             status: 'verified',
             resetLinkSent: false,
-            passwordChangeToken,
-            passwordChangeTokenExpiresAt,
           },
           'Cuenta ya verificada',
-          'La cuenta ya fue habilitada previamente y sigue pendiente el cambio de contraseña.',
+          'La cuenta ya fue habilitada previamente y sigue pendiente el cambio de contrasena. Revisa tu correo para continuar.',
           200,
-        );
+        )
       }
 
       return buildSuccessResponse(
@@ -269,13 +286,11 @@ export class UserService {
           disabled: false,
           status: 'verified',
           resetLinkSent: false,
-          passwordChangeToken: '',
-          passwordChangeTokenExpiresAt: '',
         },
         'Cuenta ya verificada',
         'La cuenta ya fue habilitada previamente.',
         200,
-      );
+      )
     }
 
     const now = Date.now();
@@ -303,33 +318,31 @@ export class UserService {
     }
 
     const updatedAt = new Date().toISOString();
-    const passwordChangeToken = this.generatePasswordChangeToken();
-    const passwordChangeTokenExpiresAt = new Date(
-      Date.now() + PASSWORD_CHANGE_TOKEN_TTL_HOURS * 60 * 60 * 1000,
-    ).toISOString();
     const verifiedRecord: UserBlockCodeRecord = {
       ...record,
       status: 'verified',
-      disabled: false,
+      disabled: true,
       verifiedAt: updatedAt,
       passwordResetSentAt: updatedAt,
       passwordResetResendCount: record.passwordResetResendCount ?? 1,
       passwordResetPending: true,
-      passwordChangeTokenHash:
-        this.hashPasswordChangeToken(passwordChangeToken),
-      passwordChangeTokenIssuedAt: updatedAt,
-      passwordChangeTokenExpiresAt,
       updatedAt,
     };
 
-    await this.firebaseAdminService.updateUserDisabled(uid, false);
     await this.firebaseAdminService.firestore
       .collection(BLOCK_CODE_COLLECTION)
       .doc(uid)
       .set(verifiedRecord);
 
-    const resetLink =
-      await this.firebaseAdminService.generatePasswordResetLink(email);
+    const recoverySession = await this.ensurePasswordRecoverySession(
+      uid,
+      email,
+    );
+
+    const resetLink = this.buildPasswordRecoveryLink(
+      recoverySession.sessionId,
+      email,
+    );
 
     const resetPayload: PasswordResetEmailPayload = {
       uid,
@@ -344,11 +357,9 @@ export class UserService {
       {
         uid,
         email,
-        disabled: false,
+        disabled: true,
         status: 'verified',
         resetLinkSent: true,
-        passwordChangeToken,
-        passwordChangeTokenExpiresAt,
       },
       'Cuenta habilitada',
       'El código fue validado y se envió el enlace para cambiar la contraseña.',
@@ -397,8 +408,14 @@ export class UserService {
       );
     }
 
-    const resetLink =
-      await this.firebaseAdminService.generatePasswordResetLink(email);
+    const recoverySession = await this.ensurePasswordRecoverySession(
+      uid,
+      email,
+    );
+    const resetLink = this.buildPasswordRecoveryLink(
+      recoverySession.sessionId,
+      email,
+    );
     const updatedAt = new Date().toISOString();
     const resendCount = (record.passwordResetResendCount ?? 1) + 1;
     const updatedRecord: UserBlockCodeRecord = {
@@ -434,16 +451,16 @@ export class UserService {
   }
 
   async updatePasswordManually(
-    token: string,
+    sessionId: string,
     newPassword: string,
   ): Promise<ApiResponse<ManualPasswordUpdateResult>> {
-    const trimmedToken = token?.trim();
+    const trimmedSessionId = sessionId?.trim();
 
-    if (!trimmedToken) {
+    if (!trimmedSessionId) {
       throw new BadRequestException(
         buildErrorResponse(
-          'Token invalido',
-          'Debes enviar un token valido para cambiar la contraseña.',
+          'Sesion invalida',
+          'Debes enviar una sesion valida para cambiar la contrasena.',
           400,
         ),
       );
@@ -459,11 +476,11 @@ export class UserService {
       );
     }
 
-    const tokenHash = this.hashPasswordChangeToken(trimmedToken);
-    const record =
-      await this.findBlockRecordByPasswordChangeTokenHash(tokenHash);
+    const session = await this.findPasswordRecoverySessionById(
+      trimmedSessionId,
+    );
 
-    if (!record) {
+    if (!session) {
       throw new NotFoundException(
         buildErrorResponse(
           'Solicitud no encontrada',
@@ -473,13 +490,7 @@ export class UserService {
       );
     }
 
-    if (
-      record.status !== 'verified' ||
-      record.disabled ||
-      !record.passwordResetPending ||
-      !record.passwordChangeTokenHash ||
-      !record.passwordChangeTokenExpiresAt
-    ) {
+    if (session.status !== 'active' || session.purpose !== 'password_reset') {
       throw new BadRequestException(
         buildErrorResponse(
           'Solicitud inválida',
@@ -489,39 +500,45 @@ export class UserService {
       );
     }
 
-    if (Date.now() > new Date(record.passwordChangeTokenExpiresAt).getTime()) {
+    if (Date.now() > new Date(session.expiresAt).getTime()) {
+      await this.markPasswordRecoverySessionExpired(session);
       throw new GoneException(
         buildErrorResponse(
-          'Token vencido',
-          'El token de cambio de contraseña venció. Solicita uno nuevo.',
+          'Sesion vencida',
+          'La sesion de cambio de contrasena vencio. Solicita una nueva.',
           410,
         ),
       );
     }
 
-    await this.firebaseAdminService.updateUserPassword(record.uid, newPassword);
-    await this.firebaseAdminService.revokeRefreshTokens(record.uid);
+    await this.firebaseAdminService.updateUserPassword(session.uid, newPassword);
+    await this.firebaseAdminService.revokeRefreshTokens(session.uid);
 
     const passwordChangedAt = new Date().toISOString();
-    const updatedRecord: UserBlockCodeRecord = {
-      ...record,
-      passwordResetPending: false,
-      passwordChangedAt,
-      passwordChangeTokenHash: undefined,
-      passwordChangeTokenIssuedAt: undefined,
-      passwordChangeTokenExpiresAt: undefined,
-      updatedAt: passwordChangedAt,
-    };
+    const record = await this.getBlockCodeRecord(session.uid);
 
-    await this.firebaseAdminService.firestore
-      .collection(BLOCK_CODE_COLLECTION)
-      .doc(record.uid)
-      .set(updatedRecord);
+    if (record) {
+      const updatedRecord: UserBlockCodeRecord = {
+        ...record,
+        passwordResetPending: false,
+        disabled: false,
+        passwordChangedAt,
+        updatedAt: passwordChangedAt,
+      };
+
+      await this.firebaseAdminService.firestore
+        .collection(BLOCK_CODE_COLLECTION)
+        .doc(session.uid)
+        .set(stripUndefinedFields(updatedRecord));
+    }
+
+    await this.firebaseAdminService.updateUserDisabled(session.uid, false);
+    await this.consumePasswordRecoverySession(session, passwordChangedAt);
 
     return buildSuccessResponse(
       {
-        uid: record.uid,
-        email: record.email,
+        uid: session.uid,
+        email: session.email,
         passwordUpdated: true,
         passwordChangedAt,
       },
@@ -583,16 +600,14 @@ export class UserService {
           ...record,
           passwordResetPending: false,
           passwordChangedAt: updatedAt,
-          passwordChangeTokenHash: undefined,
-          passwordChangeTokenIssuedAt: undefined,
-          passwordChangeTokenExpiresAt: undefined,
           updatedAt,
         };
 
         await this.firebaseAdminService.firestore
           .collection(BLOCK_CODE_COLLECTION)
           .doc(user.uid)
-          .set(updatedRecord);
+          .set(stripUndefinedFields(updatedRecord));
+        await this.expireActivePasswordRecoverySessions(user.uid);
 
         return buildSuccessResponse(
           {
@@ -609,25 +624,34 @@ export class UserService {
         );
       }
 
-      const updatedAt = new Date().toISOString();
-      const passwordChangeToken = this.generatePasswordChangeToken();
-      const passwordChangeTokenExpiresAt = new Date(
-        Date.now() + PASSWORD_CHANGE_TOKEN_TTL_HOURS * 60 * 60 * 1000,
-      ).toISOString();
-      const updatedRecord: UserBlockCodeRecord = {
-        ...record,
-        passwordResetPending: true,
-        passwordChangeTokenHash:
-          this.hashPasswordChangeToken(passwordChangeToken),
-        passwordChangeTokenIssuedAt: updatedAt,
-        passwordChangeTokenExpiresAt,
-        updatedAt,
-      };
+      const activeSession = await this.findActivePasswordRecoverySessionByUid(
+        user.uid,
+      );
 
-      await this.firebaseAdminService.firestore
-        .collection(BLOCK_CODE_COLLECTION)
-        .doc(user.uid)
-        .set(updatedRecord);
+      if (
+        !activeSession ||
+        Date.now() > new Date(activeSession.expiresAt).getTime()
+      ) {
+        if (activeSession) {
+          await this.markPasswordRecoverySessionExpired(activeSession);
+        }
+
+        const blockCodeResponse = await this.requestBlockCode(user.uid);
+
+        return buildSuccessResponse(
+          {
+            blocked: true,
+            uid: user.uid,
+            email: user.email ?? normalizedEmail,
+            disabled: true,
+            codeSent: true,
+            expiresAt: blockCodeResponse.result.expiresAt,
+          },
+          'Codigo requerido',
+          'La recuperacion vencio. Debes validar un nuevo codigo de desbloqueo.',
+          200,
+        );
+      }
 
       return buildSuccessResponse(
         {
@@ -637,11 +661,9 @@ export class UserService {
           disabled: user.disabled,
           codeSent: false,
           passwordResetPending: true,
-          passwordChangeToken,
-          passwordChangeTokenExpiresAt,
         },
         'Contraseña pendiente',
-        'La cuenta ya fue desbloqueada, pero falta cambiar la contraseña.',
+        'La cuenta ya fue desbloqueada, pero falta cambiar la contraseña. Revisa tu correo para continuar.',
         200,
       );
     }
@@ -908,12 +930,33 @@ export class UserService {
     return snapshot.data() as UserLoginAttemptRecord;
   }
 
-  private async findBlockRecordByPasswordChangeTokenHash(
-    tokenHash: string,
-  ): Promise<UserBlockCodeRecord | null> {
+  private async findPasswordRecoverySessionById(
+    sessionId: string,
+  ): Promise<PasswordRecoverySessionSnapshot | null> {
+    const sessionIdHash = this.hashPasswordRecoverySessionId(sessionId);
     const snapshot = await this.firebaseAdminService.firestore
-      .collection(BLOCK_CODE_COLLECTION)
-      .where('passwordChangeTokenHash', '==', tokenHash)
+      .collection(PASSWORD_RECOVERY_SESSION_COLLECTION)
+      .doc(sessionIdHash)
+      .get();
+
+    if (!snapshot.exists) {
+      return null;
+    }
+
+    return {
+      sessionIdHash: snapshot.id,
+      ...(snapshot.data() as PasswordRecoverySessionRecord),
+    };
+  }
+
+  private async findActivePasswordRecoverySessionByUid(
+    uid: string,
+  ): Promise<PasswordRecoverySessionSnapshot | null> {
+    const snapshot = await this.firebaseAdminService.firestore
+      .collection(PASSWORD_RECOVERY_SESSION_COLLECTION)
+      .where('uid', '==', uid)
+      .where('status', '==', 'active')
+      .where('purpose', '==', 'password_reset')
       .limit(1)
       .get();
 
@@ -921,7 +964,104 @@ export class UserService {
       return null;
     }
 
-    return snapshot.docs[0].data() as UserBlockCodeRecord;
+    const data = snapshot.docs[0].data() as PasswordRecoverySessionRecord;
+
+    return {
+      sessionIdHash: snapshot.docs[0].id,
+      ...data,
+    };
+  }
+
+  private async ensurePasswordRecoverySession(
+    uid: string,
+    email: string,
+  ): Promise<{ sessionId: string; expiresAt: string }> {
+    await this.expireActivePasswordRecoverySessions(uid);
+
+    const sessionId = this.generatePasswordRecoverySessionId();
+    const sessionIdHash = this.hashPasswordRecoverySessionId(sessionId);
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(
+      Date.now() + PASSWORD_RECOVERY_SESSION_TTL_MINUTES * 60 * 1000,
+    ).toISOString();
+    const record: PasswordRecoverySessionRecord = {
+      uid,
+      email,
+      purpose: 'password_reset',
+      status: 'active',
+      createdAt,
+      createdAtMs: Date.now(),
+      expiresAt,
+      expiresAtMs: new Date(expiresAt).getTime(),
+      updatedAt: createdAt,
+    };
+
+    await this.firebaseAdminService.firestore
+      .collection(PASSWORD_RECOVERY_SESSION_COLLECTION)
+      .doc(sessionIdHash)
+      .set(record);
+
+    return {
+      sessionId,
+      expiresAt,
+    };
+  }
+
+  private async expireActivePasswordRecoverySessions(uid: string): Promise<void> {
+    const snapshot = await this.firebaseAdminService.firestore
+      .collection(PASSWORD_RECOVERY_SESSION_COLLECTION)
+      .where('uid', '==', uid)
+      .get();
+
+    if (snapshot.empty) {
+      return;
+    }
+
+    const expiredAt = new Date().toISOString();
+    await Promise.all(
+      snapshot.docs.map(async (doc) => {
+        const session = doc.data() as PasswordRecoverySessionRecord;
+
+        if (session.status !== 'active' || session.purpose !== 'password_reset') {
+          return;
+        }
+
+        await doc.ref.set({
+          ...session,
+          status: 'expired',
+          updatedAt: expiredAt,
+        });
+      }),
+    );
+  }
+
+  private async consumePasswordRecoverySession(
+    session: PasswordRecoverySessionSnapshot,
+    passwordChangedAt: string,
+  ): Promise<void> {
+    await this.firebaseAdminService.firestore
+      .collection(PASSWORD_RECOVERY_SESSION_COLLECTION)
+      .doc(session.sessionIdHash)
+      .set({
+        ...session,
+        status: 'consumed',
+        usedAt: passwordChangedAt,
+        passwordChangedAt,
+        updatedAt: passwordChangedAt,
+      });
+  }
+
+  private async markPasswordRecoverySessionExpired(
+    session: PasswordRecoverySessionSnapshot,
+  ): Promise<void> {
+    await this.firebaseAdminService.firestore
+      .collection(PASSWORD_RECOVERY_SESSION_COLLECTION)
+      .doc(session.sessionIdHash)
+      .set({
+        ...session,
+        status: 'expired',
+        updatedAt: new Date().toISOString(),
+      });
   }
 
   private getTokensValidAfterDate(value: string | undefined): Date | null {
@@ -1027,15 +1167,28 @@ export class UserService {
     return email?.trim().toLowerCase() ?? '';
   }
 
-  private generatePasswordChangeToken(): string {
+  private buildPasswordRecoveryLink(sessionId: string, email: string): string {
+    const frontendUrl =
+      readOptionalEnv('FRONTEND_URL') ?? 'http://localhost:4200';
+    const baseUrl = frontendUrl.replace(/\/+$/, '');
+    const url = new URL(`${baseUrl}/set-new-password`);
+    url.searchParams.set('session', sessionId);
+    url.searchParams.set('email', email);
+
+    return url.toString();
+  }
+
+  private generatePasswordRecoverySessionId(): string {
     return randomBytes(32).toString('base64url');
   }
 
-  private hashPasswordChangeToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
+  private hashPasswordRecoverySessionId(sessionId: string): string {
+    return createHash('sha256').update(sessionId).digest('hex');
   }
 
   private isValidPassword(password: string): boolean {
     return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
   }
 }
+
+

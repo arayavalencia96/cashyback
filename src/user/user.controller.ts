@@ -42,7 +42,7 @@ export class UserController {
   @Post('password/manual')
   updatePasswordManually(@Body() body: ManualPasswordUpdateDto) {
     return this.userService.updatePasswordManually(
-      body.token,
+      body.sessionId ?? body.token ?? '',
       body.newPassword,
     );
   }

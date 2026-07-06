@@ -1,4 +1,5 @@
 export type BlockCodeStatus = 'pending' | 'verified' | 'expired';
+export type PasswordRecoverySessionStatus = 'active' | 'consumed' | 'expired';
 
 export interface UserBlockCodeRecord {
   uid: string;
@@ -16,11 +17,22 @@ export interface UserBlockCodeRecord {
   passwordResetSentAt?: string;
   passwordResetResendCount?: number;
   passwordResetPending?: boolean;
-  passwordChangeTokenHash?: string;
-  passwordChangeTokenIssuedAt?: string;
-  passwordChangeTokenExpiresAt?: string;
   passwordChangedAt?: string;
   updatedAt: string;
+}
+
+export interface PasswordRecoverySessionRecord {
+  uid: string;
+  email: string;
+  purpose: 'password_reset';
+  status: PasswordRecoverySessionStatus;
+  createdAt: string;
+  createdAtMs: number;
+  expiresAt: string;
+  expiresAtMs: number;
+  updatedAt: string;
+  usedAt?: string;
+  passwordChangedAt?: string;
 }
 
 export interface BlockCodeEmailPayload {
