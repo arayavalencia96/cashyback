@@ -31,8 +31,7 @@ const PASSWORD_RECOVERY_SESSION_TTL_MINUTES = 10;
 const MAX_LOGIN_ATTEMPTS = 3;
 const BLOCK_CODE_COLLECTION = 'user_block_codes';
 const LOGIN_ATTEMPTS_COLLECTION = 'user_login_attempts';
-const PASSWORD_RECOVERY_SESSION_COLLECTION =
-  'user_password_recovery_sessions';
+const PASSWORD_RECOVERY_SESSION_COLLECTION = 'user_password_recovery_sessions';
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
 export interface RequestBlockCodeResult {
@@ -99,9 +98,7 @@ interface PasswordRecoverySessionSnapshot extends PasswordRecoverySessionRecord 
   sessionIdHash: string;
 }
 
-function stripUndefinedFields<T extends object>(
-  value: T,
-): Partial<T> {
+function stripUndefinedFields<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(value).filter(([, entry]) => entry !== undefined),
   ) as Partial<T>;
@@ -276,7 +273,7 @@ export class UserService {
           'Cuenta ya verificada',
           'La cuenta ya fue habilitada previamente y sigue pendiente el cambio de contrasena. Revisa tu correo para continuar.',
           200,
-        )
+        );
       }
 
       return buildSuccessResponse(
@@ -290,7 +287,7 @@ export class UserService {
         'Cuenta ya verificada',
         'La cuenta ya fue habilitada previamente.',
         200,
-      )
+      );
     }
 
     const now = Date.now();
@@ -476,9 +473,8 @@ export class UserService {
       );
     }
 
-    const session = await this.findPasswordRecoverySessionById(
-      trimmedSessionId,
-    );
+    const session =
+      await this.findPasswordRecoverySessionById(trimmedSessionId);
 
     if (!session) {
       throw new NotFoundException(
@@ -511,7 +507,10 @@ export class UserService {
       );
     }
 
-    await this.firebaseAdminService.updateUserPassword(session.uid, newPassword);
+    await this.firebaseAdminService.updateUserPassword(
+      session.uid,
+      newPassword,
+    );
     await this.firebaseAdminService.revokeRefreshTokens(session.uid);
 
     const passwordChangedAt = new Date().toISOString();
@@ -1007,7 +1006,9 @@ export class UserService {
     };
   }
 
-  private async expireActivePasswordRecoverySessions(uid: string): Promise<void> {
+  private async expireActivePasswordRecoverySessions(
+    uid: string,
+  ): Promise<void> {
     const snapshot = await this.firebaseAdminService.firestore
       .collection(PASSWORD_RECOVERY_SESSION_COLLECTION)
       .where('uid', '==', uid)
@@ -1022,7 +1023,10 @@ export class UserService {
       snapshot.docs.map(async (doc) => {
         const session = doc.data() as PasswordRecoverySessionRecord;
 
-        if (session.status !== 'active' || session.purpose !== 'password_reset') {
+        if (
+          session.status !== 'active' ||
+          session.purpose !== 'password_reset'
+        ) {
           return;
         }
 
@@ -1190,5 +1194,3 @@ export class UserService {
     return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
   }
 }
-
-
