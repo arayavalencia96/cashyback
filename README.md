@@ -1,15 +1,141 @@
 # cashyback
 
-Backend NestJS para bloqueo y desbloqueo de usuarios con Firebase Authentication, Firestore y envío de correos por Brevo.
+Backend NestJS de Cashy para bloqueo de usuarios, verificacion de codigo, recuperacion de password, rate limiting y envio de correos.
+
+## Stack
+
+- NestJS `11.1.27`
+- Firebase Admin `14.1.0`
+- Brevo `6.0.2`
+- Redis con `ioredis` `5.11.1`
+- TypeScript `5.9.3`
+
+## Versiones fijadas
+
+- Node.js `24.11.1`
+- npm `11.6.2`
+
+Este repo incluye:
+
+- `package-lock.json` para fijar dependencias exactas
+- `.nvmrc` para usar la misma version de Node
+- `packageManager` y `volta` en `package.json` para fijar Node y npm
+- `.npmrc` con `engine-strict=true`
+- dependencias sin rangos `^`, `~` ni `*` en `package.json`
+
+## Instalacion reproducible
+
+```bash
+nvm use
+npm ci
+```
+
+Si usas Volta:
+
+```bash
+volta install node@24.11.1 npm@11.6.2
+npm ci
+```
+
+Usa `npm ci` para reinstalar exactamente lo definido en `package-lock.json`.
+Usa `npm install` solo cuando quieras cambiar dependencias de forma intencional.
 
 ## Que hace
 
-- Bloquea usuarios en Firebase Auth.
-- Genera y valida codigos de desbloqueo.
-- Guarda el estado del codigo en Firestore.
-- Envia correo con template HTML.
-- Genera link de reseteo de contraseña propio del frontend cuando el codigo se valida correctamente.
-- Permite habilitar o deshabilitar cuentas manualmente.
+- Bloquea usuarios en Firebase Auth cuando superan el limite de intentos
+- Genera y valida codigos de verificacion
+- Reenvia codigos cuando detecta cuenta bloqueada
+- Inicia y controla sesiones de recuperacion de password
+- Envia correos por Brevo
+- Expone rate limiting por usuario e IP
+- Usa Redis para compartir limites entre instancias cuando `REDIS_URL` esta definido
+
+## Requisitos
+
+- Node.js `24.11.1`
+- npm `11.6.2`
+- Firebase Authentication habilitado
+- service account de Firebase Admin
+- cuenta de Brevo
+- Redis recomendado en cualquier entorno con mas de una instancia
+
+## Configuracion local
+
+1. Instala dependencias:
+
+```bash
+nvm use
+npm ci
+```
+
+2. Crea un archivo `.env` en la raiz del proyecto.
+
+3. Usa como base este contenido:
+
+```env
+PORT=3000
+FIREBASE_CREDENTIALS_PATH=./configuration-firebase.json
+BREVO_API_KEY=tu_api_key_de_brevo
+BREVO_SENDER_EMAIL=tu_correo_verificado@tudominio.com
+BREVO_SENDER_NAME=Cashy
+MAIL_SUPPORT=soporte@tudominio.com
+MAIL_FROM=Cashy <no-reply@tudominio.com>
+FRONTEND_URL=http://localhost:4200
+REDIS_URL=redis://default:<tu_password>@<tu-host-interno>:6379
+```
+
+## Variables importantes
+
+- `FIREBASE_CREDENTIALS_PATH`: path al JSON del service account
+- `FRONTEND_URL`: URL del frontend que recibe el flujo de recuperacion
+- `REDIS_URL`: backend de rate limiting y sesiones compartidas; si no se define, cae a memoria local
+
+En Render, `REDIS_URL` debe ser la `Internal Key Value URL` de tu instancia Redis.
+No hace falta cambiar codigo para usarla: el backend la detecta automaticamente al iniciar.
+
+El archivo del service account no debe subirse al repo.
+
+## Scripts
+
+```bash
+npm run start
+npm run start:dev
+npm run start:prod
+npm run build
+npm run lint
+npm run test
+npm run test:e2e
+npm run test:cov
+```
+
+## Ejecucion
+
+Desarrollo:
+
+```bash
+npm run start:dev
+```
+
+Produccion:
+
+```bash
+npm run build
+npm run start:prod
+```
+
+## Verificacion
+
+Chequeo de tipos:
+
+```bash
+npx tsc --noEmit
+```
+
+Health check:
+
+```bash
+GET /health
+```
 
 ## Endpoints
 
@@ -24,9 +150,7 @@ Base path: `/user`
 - `POST /user/password/manual`
 - `PATCH /user/:uid/status`
 
-### Respuesta estandar
-
-Todos los endpoints responden con este formato:
+## Respuesta estandar
 
 ```json
 {
@@ -38,223 +162,44 @@ Todos los endpoints responden con este formato:
 }
 ```
 
-## Requisitos
+## Flujo de recuperacion actual
 
-- Node.js 20 o superior
-- npm
-- Una cuenta de Firebase con Authentication habilitado
-- Un archivo de servicio de Firebase Admin
-- Una cuenta en Brevo para enviar correos
+1. `POST /user/block-code/check`
+   - si la cuenta sigue bloqueada, reenvia codigo y responde `blocked = true`
+   - si la cuenta tiene recuperacion pendiente y la sesion sigue vigente, responde `passwordResetPending = true`
+   - si la recuperacion pendiente vencio, vuelve a exigir codigo y reenvia uno nuevo
 
-## Configuracion local
+2. `POST /user/:uid/block-code/verify`
+   - valida el codigo
+   - desbloquea la cuenta
+   - crea o renueva la sesion de recuperacion
+   - envia el correo para cambiar password
 
-1. Instala dependencias:
+3. `POST /user/:uid/password-reset/resend`
+   - reenvia el correo de recuperacion para una sesion activa
 
-```bash
-npm install
-```
+4. `POST /user/password/manual`
+   - permite actualizar la password con `sessionId` o `token`
+   - invalida la sesion al completar el cambio
 
-2. Crea un archivo `.env` en la raiz del proyecto.
+## Rate limiting
 
-3. Usa como base este contenido:
+Hay limites por usuario y por IP en los endpoints sensibles:
 
-```env
-PORT=3000
+- solicitud de codigo
+- verificacion de codigo
+- consulta de bloqueo
+- intentos fallidos de login
+- reset de intentos
+- reenvio de recuperacion
+- cambio manual de password
 
-FIREBASE_CREDENTIALS_PATH=./configuration-firebase.json
-
-BREVO_API_KEY=tu_api_key_de_brevo
-BREVO_SENDER_EMAIL=tu_correo_verificado@tudominio.com
-BREVO_SENDER_NAME=YourApp
-MAIL_SUPPORT=example@tudominio.com
-MAIL_FROM=App Name <example@gmail.com>
-FRONTEND_URL=http://localhost:4200
-```
-
-## Archivo de Firebase
-
-`FIREBASE_CREDENTIALS_PATH` debe apuntar al archivo JSON del service account.
-`FRONTEND_URL` debe apuntar al frontend que recibe el enlace de cambio de contraseña.
-
-Ejemplo:
-
-```env
-FIREBASE_CREDENTIALS_PATH=./configuration-firebase.json
-```
-
-Ese archivo no debe subirse al repo.
-
-## Levantar el proyecto
-
-### Desarrollo
-
-```bash
-npm run start:dev
-```
-
-### Produccion
-
-```bash
-npm run build
-npm run start:prod
-```
-
-## Probar el flujo
-
-### 1. Solicitar codigo
-
-```bash
-POST /user/:uid/block-code
-```
-
-Bloquea al usuario y envia el codigo por correo.
-
-### 1.1 Consultar bloqueo por correo
-
-```bash
-POST /user/block-code/check
-```
-
-Body:
-
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-Si el usuario esta bloqueado:
-
-- retorna `result.blocked = true`
-- reenvia un nuevo codigo de desbloqueo
-- mantiene la cuenta deshabilitada en Firebase Auth
-
-Si no esta bloqueado:
-
-- retorna `result.blocked = false`
-- no envia correo
-
-Si la cuenta ya fue desbloqueada pero todavía falta cambiar la contraseña:
-
-- retorna `result.passwordResetPending = true`
-- retorna un `passwordChangeToken`
-- el frontend debe llevar al usuario a la pantalla manual de cambio de contraseña
-
-### 1.2 Registrar intento fallido
-
-```bash
-POST /user/login-attempts/failure
-```
-
-Body:
-
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-Si llega al tercer intento:
-
-- bloquea la cuenta en Firebase Auth
-- envia un nuevo codigo de desbloqueo
-- retorna `result.blocked = true`
-
-### 1.3 Reiniciar intentos
-
-```bash
-POST /user/login-attempts/reset
-```
-
-Body:
-
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-Se usa despues de un login exitoso para dejar el contador en cero.
-
-### 1.4 Reenviar correo de contrasena
-
-```bash
-POST /user/:uid/password-reset/resend
-```
-
-Se usa cuando el usuario ya valido el codigo de desbloqueo pero necesita volver a recibir el correo para cambiar su contrasena.
-
-### 1.5 Cambiar contraseña manualmente
-
-```bash
-POST /user/password/manual
-```
-
-Body:
-
-```json
-{
-  "token": "token-opaco",
-  "newPassword": "NuevaClave123"
-}
-```
-
-Este endpoint actualiza la contraseña en Firebase Auth sin usar el link de correo.
-
-### 2. Validar codigo
-
-```bash
-POST /user/:uid/block-code/verify
-```
-
-Body:
-
-```json
-{
-  "code": "123456"
-}
-```
-
-Si el codigo es correcto:
-
-- desbloquea el usuario
-- marca el codigo como verificado
-- genera el link de reseteo de contraseña
-- envia el correo de restablecimiento
-
-### 3. Cambiar estado manualmente
-
-```bash
-PATCH /user/:uid/status
-```
-
-Body:
-
-```json
-{
-  "disabled": true
-}
-```
-
-Sirve para bloquear o habilitar una cuenta manualmente.
+Si vas a correr multiples instancias, usa Redis para que esos limites no queden aislados por proceso.
 
 ## Estructura relevante
 
-- `src/main.ts` bootstrap de la app y carga de `.env`
+- `src/main.ts` bootstrap y carga de `.env`
 - `src/app.module.ts` modulo raiz
-- `src/common/` servicios compartidos, Brevo, Firebase y templates
-- `src/common/templates/` templates HTML de correos
-- `src/user/` flujo de bloqueo, verificacion y estado de usuario
-
-## Scripts
-
-```bash
-npm run start
-npm run start:dev
-npm run start:prod
-npm run build
-npm run lint
-npm run test
-npm run test:e2e
-npm run test:cov
-```
+- `src/common/` Firebase, Brevo, Redis, rate limiting y helpers
+- `src/common/templates/` templates HTML de correo
+- `src/user/` controladores, DTOs y servicio de bloqueo/recuperacion
