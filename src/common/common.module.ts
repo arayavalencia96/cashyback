@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { FirebaseAuthGuard } from './auth/firebase-auth.guard';
 import { EmailService } from './services/email.service';
 import { FirebaseAdminService } from './services/firebase.service';
 import { BrevoService } from './services/brevo.service';
@@ -11,6 +12,7 @@ import { RateLimitStorageService } from './rate-limit/rate-limit.storage';
     BrevoService,
     EmailService,
     FirebaseAdminService,
+    FirebaseAuthGuard,
     RateLimitStorageService,
     RateLimitGuard,
   ],
@@ -18,6 +20,7 @@ import { RateLimitStorageService } from './rate-limit/rate-limit.storage';
     BrevoService,
     EmailService,
     FirebaseAdminService,
+    FirebaseAuthGuard,
     RateLimitStorageService,
     RateLimitGuard,
   ],
