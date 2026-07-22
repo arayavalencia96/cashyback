@@ -2,6 +2,7 @@ export interface PushSubscriptionRecord {
   uid: string;
   token: string;
   platform: 'web';
+  deviceId: string;
   userAgent: string | null;
   createdAt: string;
   updatedAt: string;

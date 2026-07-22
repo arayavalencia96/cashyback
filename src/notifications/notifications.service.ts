@@ -85,16 +85,17 @@ export class NotificationsService {
     input: {
       token: string;
       platform: 'web';
+      deviceId: string;
       userAgent?: string;
     },
   ): Promise<ApiResponse<PushSubscribeResult>> {
     this.ensurePushConfigured();
 
-    if (!input.token?.trim()) {
+    if (!input.token?.trim() || !input.deviceId?.trim()) {
       throw new BadRequestException(
         buildErrorResponse(
           'Token push invalido',
-          'Debes enviar un token valido de Firebase Cloud Messaging.',
+          'Debes enviar un token y un identificador de dispositivo validos.',
           400,
         ),
       );
@@ -109,11 +110,17 @@ export class NotificationsService {
     const existing = existingSnapshot.exists
       ? (existingSnapshot.data() as PushSubscriptionRecord)
       : null;
+    await this.deletePreviousDeviceSubscriptions(
+      uid,
+      input.deviceId.trim(),
+      documentId,
+    );
 
     const record: PushSubscriptionRecord = {
       uid,
       token: input.token.trim(),
       platform: 'web',
+      deviceId: input.deviceId.trim(),
       userAgent: input.userAgent?.trim() || null,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -248,6 +255,7 @@ export class NotificationsService {
         const sendResult = await this.sendNotificationToSubscriptions(
           subscriptions,
           {
+            notificationId: `${todayKey}:${uid}:overdue`,
             title: 'Cashy',
             body: 'Tenes vencido un gasto.',
             url: this.buildFixedExpensesUrl(),
@@ -291,6 +299,7 @@ export class NotificationsService {
       const sendResult = await this.sendNotificationToSubscriptions(
         subscriptions,
         {
+          notificationId: `${todayKey}:${uid}:due-soon`,
           title: 'Cashy',
           body: this.buildDueSoonMessage(daysUntilDue, dueSoonItems.length),
           url: this.buildFixedExpensesUrl(),
@@ -372,6 +381,23 @@ export class NotificationsService {
       .get();
 
     return snapshot.docs.map((document) => document.data() as PushSubscriptionRecord);
+  }
+
+  private async deletePreviousDeviceSubscriptions(
+    uid: string,
+    deviceId: string,
+    currentDocumentId: string,
+  ): Promise<void> {
+    const subscriptions = await this.listActiveSubscriptions(uid);
+    const duplicates = subscriptions.filter(
+      (subscription) =>
+        subscription.deviceId === deviceId &&
+        this.hashToken(subscription.token) !== currentDocumentId,
+    );
+
+    await Promise.all(
+      duplicates.map((subscription) => this.deleteSubscription(subscription.token)),
+    );
   }
 
   private async listActiveSubscriptionsByUserIds(
@@ -515,6 +541,7 @@ export class NotificationsService {
   private async sendNotificationToSubscriptions(
     subscriptions: Array<PushSubscriptionRecord>,
     payload: {
+      notificationId: string;
       title: string;
       body: string;
       url: string;
@@ -523,15 +550,14 @@ export class NotificationsService {
     const response = await this.firebaseAdminService.messaging.sendEachForMulticast(
       {
         tokens: subscriptions.map((subscription) => subscription.token),
-        notification: {
+        data: {
+          notificationId: payload.notificationId,
           title: payload.title,
           body: payload.body,
+          url: payload.url,
+          icon: '/cashy-logo.svg',
         },
         webpush: {
-          notification: {
-            icon: '/cashy-logo.svg',
-            badge: '/cashy-logo.svg',
-          },
           fcmOptions: {
             link: payload.url,
           },
