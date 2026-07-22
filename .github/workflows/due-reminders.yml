@@ -1,0 +1,60 @@
+name: Due Reminders
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
+
+concurrency:
+  group: due-reminders
+  cancel-in-progress: false
+
+jobs:
+  process-due-reminders:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Wake backend
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+        run: |
+          if [ -z "$BACKEND_BASE_URL" ]; then
+            echo "Missing BACKEND_BASE_URL secret"
+            exit 1
+          fi
+
+          curl --silent --show-error --fail \
+            --max-time 30 \
+            --retry 5 \
+            --retry-all-errors \
+            --retry-delay 15 \
+            "$BACKEND_BASE_URL/health" > /dev/null
+
+      - name: Give Render time to finish cold start
+        run: sleep 20
+
+      - name: Trigger due reminders
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          REMINDER_ENDPOINT: /notifications/process-due-reminders
+        run: |
+          if [ -z "$BACKEND_BASE_URL" ]; then
+            echo "Missing BACKEND_BASE_URL secret"
+            exit 1
+          fi
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing CRON_SECRET secret"
+            exit 1
+          fi
+
+          curl --silent --show-error --fail \
+            --request POST \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "Content-Type: application/json" \
+            --max-time 60 \
+            --retry 3 \
+            --retry-all-errors \
+            --retry-delay 10 \
+            "$BACKEND_BASE_URL$REMINDER_ENDPOINT"

@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { CommonModule } from './common/common.module';
 import { HealthController } from './health.controller';
 import { HistoryModule } from './history/history.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   controllers: [HealthController],
@@ -13,6 +14,7 @@ import { HistoryModule } from './history/history.module';
     }),
     CommonModule,
     HistoryModule,
+    NotificationsModule,
     UserModule,
   ],
 })

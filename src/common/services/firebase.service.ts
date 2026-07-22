@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { App, cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth, type Auth, type UserRecord } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getMessaging, type Messaging } from 'firebase-admin/messaging';
 import type { ServiceAccount } from 'firebase-admin';
 
 import { readOptionalEnv, readRequiredEnv } from '../env';
@@ -15,11 +16,13 @@ export class FirebaseAdminService {
   private readonly app: App;
   private readonly authService: Auth;
   private readonly firestoreService: Firestore;
+  private readonly messagingService: Messaging;
 
   constructor() {
     this.app = this.initializeApp();
     this.authService = getAuth(this.app);
     this.firestoreService = getFirestore(this.app);
+    this.messagingService = getMessaging(this.app);
   }
 
   get auth(): Auth {
@@ -28,6 +31,10 @@ export class FirebaseAdminService {
 
   get firestore(): Firestore {
     return this.firestoreService;
+  }
+
+  get messaging(): Messaging {
+    return this.messagingService;
   }
 
   get databaseId(): string {
