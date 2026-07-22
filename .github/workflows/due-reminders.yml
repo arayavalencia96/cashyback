@@ -12,6 +12,7 @@ concurrency:
 jobs:
   process-due-reminders:
     runs-on: ubuntu-24.04
+    environment: cashy
     timeout-minutes: 5
     steps:
       - name: Wake backend
