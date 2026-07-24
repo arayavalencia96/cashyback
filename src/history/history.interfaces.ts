@@ -27,7 +27,7 @@ export interface VariableExpenseRecord {
 export interface InvestmentRecord {
   userId: string;
   ticker: string;
-  transactionType: 'compra' | 'venta';
+  transactionType: 'compra' | 'venta' | 'ahorro';
   transactionDate?: string;
   purchaseDate?: string;
   saleDate?: string | null;
@@ -70,7 +70,7 @@ export interface SummaryHistoryItem {
   paidAt?: string;
   gainLossArs?: number;
   gainLossUsd?: number;
-  transactionType?: 'compra' | 'venta';
+  transactionType?: 'compra' | 'venta' | 'ahorro';
   transactionDate?: string;
   saleDate?: string | null;
   saleDollarMepValue?: number | null;

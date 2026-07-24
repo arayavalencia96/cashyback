@@ -210,14 +210,16 @@ export class HistoryService {
       ...investments.map((item) => {
         const transactionDate =
           item.data.transactionDate ?? item.data.purchaseDate ?? '';
-        const investedAmount = this.roundMoney(
-          (item.data.quantity ?? 0) * (item.data.averagePurchasePrice ?? 0),
-        );
+        const investedAmount = item.data.transactionType === 'ahorro'
+          ? this.roundMoney(item.data.amount ?? 0)
+          : this.roundMoney(
+              (item.data.quantity ?? 0) * (item.data.averagePurchasePrice ?? 0),
+            );
 
         return {
           kind: 'investment' as const,
           id: item.id,
-          title: item.data.ticker,
+          title: item.data.transactionType === 'ahorro' ? 'Ahorro' : item.data.ticker,
           amount: investedAmount,
           category: item.data.platform,
           notes: item.data.notes ?? '',
