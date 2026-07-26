@@ -6,13 +6,17 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+
+import { RateLimitGuard } from 'src/common/rate-limit/rate-limit.guard';
+
 import { UserService } from './user.service';
-import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
-import { SetUserStatusDto } from './dto/set-user-status.dto';
+
+import { RateLimit } from 'src/common/rate-limit/rate-limit.decorator';
+
 import { CheckUserBlockStatusDto } from './dto/check-user-block-status.dto';
 import { ManualPasswordUpdateDto } from './dto/manual-password-update.dto';
-import { RateLimit } from 'src/common/rate-limit/rate-limit.decorator';
-import { RateLimitGuard } from 'src/common/rate-limit/rate-limit.guard';
+import { SetUserStatusDto } from './dto/set-user-status.dto';
+import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
 
 @UseGuards(RateLimitGuard)
 @Controller('user')

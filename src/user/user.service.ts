@@ -24,6 +24,16 @@ import {
   PasswordRecoverySessionRecord,
   ToggleUserStatusPayload,
   UserBlockCodeRecord,
+  RequestBlockCodeResult,
+  VerifyBlockCodeResult,
+  ResendPasswordResetResult,
+  ManualPasswordUpdateResult,
+  RegisterLoginAttemptResult,
+  UserLoginAttemptRecord,
+  ResetLoginAttemptResult,
+  ToggleUserStatusResult,
+  PasswordRecoverySessionSnapshot,
+  CheckBlockStatusResult,
 } from './interfaces/user-block-code.interface';
 
 const BLOCK_CODE_TTL_MINUTES = 5;
@@ -34,84 +44,10 @@ const LOGIN_ATTEMPTS_COLLECTION = 'user_login_attempts';
 const PASSWORD_RECOVERY_SESSION_COLLECTION = 'user_password_recovery_sessions';
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
-export interface RequestBlockCodeResult {
-  uid: string;
-  email: string;
-  disabled: boolean;
-  expiresAt: string;
-}
-
-export interface VerifyBlockCodeResult {
-  uid: string;
-  email: string;
-  disabled: boolean;
-  status: 'verified';
-  resetLinkSent: boolean;
-}
-
-export interface ResendPasswordResetResult {
-  uid: string;
-  email: string;
-  resetLinkSent: boolean;
-  passwordResetResendCount: number;
-}
-
-export interface ToggleUserStatusResult {
-  uid: string;
-  disabled: boolean;
-}
-
-export interface RegisterLoginAttemptResult {
-  uid: string;
-  email: string;
-  attemptCount: number;
-  remainingAttempts: number;
-  blocked: boolean;
-  codeSent: boolean;
-  expiresAt?: string;
-}
-
-export interface ResetLoginAttemptResult {
-  uid: string;
-  email: string;
-  attemptCount: 0;
-}
-
-export interface ManualPasswordUpdateResult {
-  uid: string;
-  email: string;
-  passwordUpdated: boolean;
-  passwordChangedAt: string;
-}
-
-interface UserLoginAttemptRecord {
-  email: string;
-  uid: string;
-  attemptCount: number;
-  blocked: boolean;
-  lastAttemptAt: string;
-  updatedAt: string;
-  blockedAt?: string;
-}
-
-interface PasswordRecoverySessionSnapshot extends PasswordRecoverySessionRecord {
-  sessionIdHash: string;
-}
-
 function stripUndefinedFields<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(value).filter(([, entry]) => entry !== undefined),
   ) as Partial<T>;
-}
-
-export interface CheckBlockStatusResult {
-  blocked: boolean;
-  uid: string;
-  email: string;
-  disabled: boolean;
-  codeSent: boolean;
-  expiresAt?: string;
-  passwordResetPending?: boolean;
 }
 
 @Injectable()
@@ -590,8 +526,8 @@ export class UserService {
     );
 
     if (passwordResetPending && record) {
-      const changedAt = this.getTokensValidAfterDate(user.tokensValidAfterTime);
-      const sentAt = this.getRecordDate(record.passwordResetSentAt);
+      const changedAt = this.parseOptionalDate(user.tokensValidAfterTime);
+      const sentAt = this.parseOptionalDate(record.passwordResetSentAt);
 
       if (changedAt && sentAt && changedAt > sentAt) {
         const updatedAt = changedAt.toISOString();
@@ -1068,17 +1004,7 @@ export class UserService {
       });
   }
 
-  private getTokensValidAfterDate(value: string | undefined): Date | null {
-    if (!value) {
-      return null;
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  private getRecordDate(value: string | undefined): Date | null {
+  private parseOptionalDate(value: string | null | undefined): Date | null {
     if (!value) {
       return null;
     }
@@ -1174,7 +1100,7 @@ export class UserService {
   private buildPasswordRecoveryLink(sessionId: string, email: string): string {
     const frontendUrl =
       readOptionalEnv('FRONTEND_URL') ?? 'http://localhost:4200';
-    const baseUrl = frontendUrl.replace(/\/+$/, '');
+    const baseUrl = frontendUrl.replace(/\/$/, '');
     const url = new URL(`${baseUrl}/set-new-password`);
     url.searchParams.set('session', sessionId);
     url.searchParams.set('email', email);
