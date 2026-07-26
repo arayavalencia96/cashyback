@@ -20,7 +20,10 @@ interface MemoryBucket {
 export class RateLimitStorageService implements OnModuleDestroy {
   private readonly logger = new Logger(RateLimitStorageService.name);
   private readonly memoryBuckets = new Map<string, MemoryBucket>();
-  private readonly cleanupInterval = setInterval(() => this.cleanupMemory(), 5 * 60 * 1000);
+  private readonly cleanupInterval = setInterval(
+    () => this.cleanupMemory(),
+    5 * 60 * 1000,
+  );
   private readonly redisClient?: RedisClient;
   private redisAvailable = false;
 
@@ -42,7 +45,9 @@ export class RateLimitStorageService implements OnModuleDestroy {
 
     this.redisClient.on('error', (error) => {
       this.redisAvailable = false;
-      this.logger.warn(`Redis rate limit disabled temporarily: ${error.message}`);
+      this.logger.warn(
+        `Redis rate limit disabled temporarily: ${error.message}`,
+      );
     });
 
     this.redisClient.on('ready', () => {
@@ -103,10 +108,12 @@ export class RateLimitStorageService implements OnModuleDestroy {
       return { current, ttl }
     `;
 
-    const result = (await this.redisClient.eval(script, 1, bucketKey, windowMs)) as [
-      number,
-      number,
-    ];
+    const result = (await this.redisClient.eval(
+      script,
+      1,
+      bucketKey,
+      windowMs,
+    )) as [number, number];
 
     const currentCount = Number(result[0] ?? 0);
     const ttlMs = Number(result[1] ?? windowMs);
@@ -165,4 +172,3 @@ export class RateLimitStorageService implements OnModuleDestroy {
     }
   }
 }
-

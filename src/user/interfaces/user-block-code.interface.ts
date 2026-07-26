@@ -56,3 +56,77 @@ export interface ToggleUserStatusPayload {
   uid: string;
   disabled: boolean;
 }
+
+export interface RequestBlockCodeResult {
+  uid: string;
+  email: string;
+  disabled: boolean;
+  expiresAt: string;
+}
+
+export interface VerifyBlockCodeResult {
+  uid: string;
+  email: string;
+  disabled: boolean;
+  status: 'verified';
+  resetLinkSent: boolean;
+}
+
+export interface ResendPasswordResetResult {
+  uid: string;
+  email: string;
+  resetLinkSent: boolean;
+  passwordResetResendCount: number;
+}
+
+export interface ToggleUserStatusResult {
+  uid: string;
+  disabled: boolean;
+}
+
+export interface RegisterLoginAttemptResult {
+  uid: string;
+  email: string;
+  attemptCount: number;
+  remainingAttempts: number;
+  blocked: boolean;
+  codeSent: boolean;
+  expiresAt?: string;
+}
+
+export interface ResetLoginAttemptResult {
+  uid: string;
+  email: string;
+  attemptCount: 0;
+}
+
+export interface ManualPasswordUpdateResult {
+  uid: string;
+  email: string;
+  passwordUpdated: boolean;
+  passwordChangedAt: string;
+}
+
+export interface UserLoginAttemptRecord {
+  email: string;
+  uid: string;
+  attemptCount: number;
+  blocked: boolean;
+  lastAttemptAt: string;
+  updatedAt: string;
+  blockedAt?: string;
+}
+
+export interface PasswordRecoverySessionSnapshot extends PasswordRecoverySessionRecord {
+  sessionIdHash: string;
+}
+
+export interface CheckBlockStatusResult {
+  blocked: boolean;
+  uid: string;
+  email: string;
+  disabled: boolean;
+  codeSent: boolean;
+  expiresAt?: string;
+  passwordResetPending?: boolean;
+}

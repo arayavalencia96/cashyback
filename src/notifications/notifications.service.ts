@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { createHash } from 'node:crypto';
 import type { BatchResponse } from 'firebase-admin/messaging';
@@ -18,8 +13,10 @@ import { FirebaseAdminService } from 'src/common/services/firebase.service';
 
 import type {
   DueReminderLogRecord,
+  DueReminderProcessingStats,
   FixedExpenseNotificationRecord,
   ProcessDueRemindersResult,
+  ProcessUserDueReminderInput,
   PushConfigResult,
   PushStatusResult,
   PushSubscribeResult,
@@ -47,9 +44,7 @@ function stripUndefinedFields<T extends object>(value: T): Partial<T> {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(
-    private readonly firebaseAdminService: FirebaseAdminService,
-  ) {}
+  constructor(private readonly firebaseAdminService: FirebaseAdminService) {}
 
   getWebConfig(): ApiResponse<PushConfigResult> {
     const vapidPublicKey = this.getVapidPublicKey();
@@ -228,119 +223,166 @@ export class NotificationsService {
       Array.from(candidateUsers),
     );
 
-    let notifiedUsers = 0;
-    let overdueUsers = 0;
-    let dueSoonUsers = 0;
-    let skippedAlreadySent = 0;
-    let usersWithoutSubscriptions = 0;
-    let deliveredCount = 0;
-    let failedCount = 0;
+    const stats = this.createEmptyDueReminderStats();
 
     for (const uid of candidateUsers) {
-      if (alreadySentUsers.has(uid)) {
-        skippedAlreadySent += 1;
-        continue;
-      }
+      const userStats = await this.processUserDueReminder({
+        uid,
+        todayKey,
+        alreadySent: alreadySentUsers.has(uid),
+        subscriptions: subscriptionsByUser.get(uid) ?? [],
+        overdueItems: overdueByUser.get(uid) ?? [],
+        dueSoonItems: dueSoonByUser.get(uid) ?? [],
+      });
 
-      const subscriptions = subscriptionsByUser.get(uid) ?? [];
-
-      if (subscriptions.length === 0) {
-        usersWithoutSubscriptions += 1;
-        continue;
-      }
-
-      const overdueItems = overdueByUser.get(uid) ?? [];
-
-      if (overdueItems.length > 0) {
-        const sendResult = await this.sendNotificationToSubscriptions(
-          subscriptions,
-          {
-            notificationId: `${todayKey}:${uid}:overdue`,
-            title: 'Cashy',
-            body: 'Tenes vencido un gasto.',
-            url: this.buildFixedExpensesUrl(),
-          },
-        );
-
-        if (sendResult.delivered > 0) {
-          notifiedUsers += 1;
-          overdueUsers += 1;
-          deliveredCount += sendResult.delivered;
-          failedCount += sendResult.failed;
-          await this.createDueReminderLog({
-            uid,
-            dateKey: todayKey,
-            reminderType: 'overdue',
-            expenseIds: overdueItems.map((item) => item.id),
-            sentAt: new Date().toISOString(),
-            deliveredCount: sendResult.delivered,
-            failedCount: sendResult.failed,
-            dueDate: this.getEarliestDueDate(overdueItems),
-            daysUntilDue: null,
-          });
-        }
-
-        continue;
-      }
-
-      const dueSoonItems = dueSoonByUser.get(uid) ?? [];
-
-      if (dueSoonItems.length === 0) {
-        continue;
-      }
-
-      const nearestDueDate = this.getEarliestDueDate(dueSoonItems);
-
-      if (!nearestDueDate) {
-        continue;
-      }
-
-      const daysUntilDue = this.diffDaysBetweenDateKeys(todayKey, nearestDueDate);
-      const sendResult = await this.sendNotificationToSubscriptions(
-        subscriptions,
-        {
-          notificationId: `${todayKey}:${uid}:due-soon`,
-          title: 'Cashy',
-          body: this.buildDueSoonMessage(daysUntilDue, dueSoonItems.length),
-          url: this.buildFixedExpensesUrl(),
-        },
-      );
-
-      if (sendResult.delivered > 0) {
-        notifiedUsers += 1;
-        dueSoonUsers += 1;
-        deliveredCount += sendResult.delivered;
-        failedCount += sendResult.failed;
-        await this.createDueReminderLog({
-          uid,
-          dateKey: todayKey,
-          reminderType: 'due-soon',
-          expenseIds: dueSoonItems.map((item) => item.id),
-          sentAt: new Date().toISOString(),
-          deliveredCount: sendResult.delivered,
-          failedCount: sendResult.failed,
-          dueDate: nearestDueDate,
-          daysUntilDue,
-        });
-      }
+      this.mergeDueReminderStats(stats, userStats);
     }
 
     return buildSuccessResponse(
       {
         dateKey: todayKey,
         processedUsers: candidateUsers.size,
-        notifiedUsers,
-        overdueUsers,
-        dueSoonUsers,
-        skippedAlreadySent,
-        usersWithoutSubscriptions,
-        deliveredCount,
-        failedCount,
+        ...stats,
       },
       'Recordatorios procesados',
       'Se procesaron los recordatorios diarios de gastos vencidos y por vencer.',
       200,
     );
+  }
+
+  private async processUserDueReminder(
+    input: ProcessUserDueReminderInput,
+  ): Promise<DueReminderProcessingStats> {
+    if (input.alreadySent) {
+      return {
+        ...this.createEmptyDueReminderStats(),
+        skippedAlreadySent: 1,
+      };
+    }
+
+    if (input.subscriptions.length === 0) {
+      return {
+        ...this.createEmptyDueReminderStats(),
+        usersWithoutSubscriptions: 1,
+      };
+    }
+
+    if (input.overdueItems.length > 0) {
+      return this.sendOverdueReminder(input);
+    }
+
+    return this.sendDueSoonReminder(input);
+  }
+
+  private async sendOverdueReminder(
+    input: ProcessUserDueReminderInput,
+  ): Promise<DueReminderProcessingStats> {
+    const sendResult = await this.sendNotificationToSubscriptions(
+      input.subscriptions,
+      {
+        notificationId: `${input.todayKey}:${input.uid}:overdue`,
+        title: 'Cashy',
+        body: 'Tenes vencido un gasto.',
+        url: this.buildFixedExpensesUrl(),
+      },
+    );
+
+    if (sendResult.delivered === 0) {
+      return this.createEmptyDueReminderStats();
+    }
+
+    await this.createDueReminderLog({
+      uid: input.uid,
+      dateKey: input.todayKey,
+      reminderType: 'overdue',
+      expenseIds: input.overdueItems.map((item) => item.id),
+      sentAt: new Date().toISOString(),
+      deliveredCount: sendResult.delivered,
+      failedCount: sendResult.failed,
+      dueDate: this.getEarliestDueDate(input.overdueItems),
+      daysUntilDue: null,
+    });
+
+    return {
+      ...this.createEmptyDueReminderStats(),
+      notifiedUsers: 1,
+      overdueUsers: 1,
+      deliveredCount: sendResult.delivered,
+      failedCount: sendResult.failed,
+    };
+  }
+
+  private async sendDueSoonReminder(
+    input: ProcessUserDueReminderInput,
+  ): Promise<DueReminderProcessingStats> {
+    const nearestDueDate = this.getEarliestDueDate(input.dueSoonItems);
+
+    if (!nearestDueDate) {
+      return this.createEmptyDueReminderStats();
+    }
+
+    const daysUntilDue = this.diffDaysBetweenDateKeys(
+      input.todayKey,
+      nearestDueDate,
+    );
+    const sendResult = await this.sendNotificationToSubscriptions(
+      input.subscriptions,
+      {
+        notificationId: `${input.todayKey}:${input.uid}:due-soon`,
+        title: 'Cashy',
+        body: this.buildDueSoonMessage(daysUntilDue, input.dueSoonItems.length),
+        url: this.buildFixedExpensesUrl(),
+      },
+    );
+
+    if (sendResult.delivered === 0) {
+      return this.createEmptyDueReminderStats();
+    }
+
+    await this.createDueReminderLog({
+      uid: input.uid,
+      dateKey: input.todayKey,
+      reminderType: 'due-soon',
+      expenseIds: input.dueSoonItems.map((item) => item.id),
+      sentAt: new Date().toISOString(),
+      deliveredCount: sendResult.delivered,
+      failedCount: sendResult.failed,
+      dueDate: nearestDueDate,
+      daysUntilDue,
+    });
+
+    return {
+      ...this.createEmptyDueReminderStats(),
+      notifiedUsers: 1,
+      dueSoonUsers: 1,
+      deliveredCount: sendResult.delivered,
+      failedCount: sendResult.failed,
+    };
+  }
+
+  private createEmptyDueReminderStats(): DueReminderProcessingStats {
+    return {
+      notifiedUsers: 0,
+      overdueUsers: 0,
+      dueSoonUsers: 0,
+      skippedAlreadySent: 0,
+      usersWithoutSubscriptions: 0,
+      deliveredCount: 0,
+      failedCount: 0,
+    };
+  }
+
+  private mergeDueReminderStats(
+    target: DueReminderProcessingStats,
+    source: DueReminderProcessingStats,
+  ): void {
+    target.notifiedUsers += source.notifiedUsers;
+    target.overdueUsers += source.overdueUsers;
+    target.dueSoonUsers += source.dueSoonUsers;
+    target.skippedAlreadySent += source.skippedAlreadySent;
+    target.usersWithoutSubscriptions += source.usersWithoutSubscriptions;
+    target.deliveredCount += source.deliveredCount;
+    target.failedCount += source.failedCount;
   }
 
   private getVapidPublicKey(): string | undefined {
@@ -380,7 +422,9 @@ export class NotificationsService {
       .where('active', '==', true)
       .get();
 
-    return snapshot.docs.map((document) => document.data() as PushSubscriptionRecord);
+    return snapshot.docs.map(
+      (document) => document.data() as PushSubscriptionRecord,
+    );
   }
 
   private async deletePreviousDeviceSubscriptions(
@@ -396,7 +440,9 @@ export class NotificationsService {
     );
 
     await Promise.all(
-      duplicates.map((subscription) => this.deleteSubscription(subscription.token)),
+      duplicates.map((subscription) =>
+        this.deleteSubscription(subscription.token),
+      ),
     );
   }
 
@@ -497,7 +543,10 @@ export class NotificationsService {
       return item.paymentStatus === 'pending';
     }
 
-    if (typeof item.partialPaymentAmount === 'number' && item.partialPaymentAmount > 0) {
+    if (
+      typeof item.partialPaymentAmount === 'number' &&
+      item.partialPaymentAmount > 0
+    ) {
       return false;
     }
 
@@ -529,7 +578,9 @@ export class NotificationsService {
     return loggedUsers;
   }
 
-  private async createDueReminderLog(record: DueReminderLogRecord): Promise<void> {
+  private async createDueReminderLog(
+    record: DueReminderLogRecord,
+  ): Promise<void> {
     const documentId = `${record.dateKey}_${record.uid}`;
 
     await this.firebaseAdminService.firestore
@@ -547,9 +598,9 @@ export class NotificationsService {
       url: string;
     },
   ): Promise<{ delivered: number; failed: number }> {
-    const response = await this.firebaseAdminService.messaging.sendEachForMulticast(
-      {
-        tokens: subscriptions.map((subscription) => subscription.token),
+    const response = await this.firebaseAdminService.messaging.sendEach(
+      subscriptions.map((subscription) => ({
+        token: subscription.token,
         data: {
           notificationId: payload.notificationId,
           title: payload.title,
@@ -562,7 +613,7 @@ export class NotificationsService {
             link: payload.url,
           },
         },
-      },
+      })),
       false,
     );
 
@@ -629,10 +680,13 @@ export class NotificationsService {
     await this.firebaseAdminService.firestore
       .collection(PUSH_SUBSCRIPTIONS_COLLECTION)
       .doc(documentId)
-      .set(stripUndefinedFields({
-        ...patch,
-        updatedAt: new Date().toISOString(),
-      }), { merge: true });
+      .set(
+        stripUndefinedFields({
+          ...patch,
+          updatedAt: new Date().toISOString(),
+        }),
+        { merge: true },
+      );
   }
 
   private async deleteSubscription(token: string): Promise<void> {
@@ -652,7 +706,7 @@ export class NotificationsService {
     const appBaseUrl =
       readOptionalEnv('APP_BASE_URL') ?? 'https://cashy-cd3e6.web.app';
 
-    return `${appBaseUrl.replace(/\/+$/, '')}/fijos`;
+    return `${appBaseUrl.replace(/\/$/, '')}/fijos`;
   }
 
   private getTodayDateKey(): string {
@@ -682,7 +736,9 @@ export class NotificationsService {
     const day = parts.find((part) => part.type === 'day')?.value;
 
     if (!year || !month || !day) {
-      throw new Error('No se pudo resolver la fecha actual en la zona horaria configurada.');
+      throw new Error(
+        'No se pudo resolver la fecha actual en la zona horaria configurada.',
+      );
     }
 
     return `${year}-${month}-${day}`;
@@ -720,13 +776,19 @@ export class NotificationsService {
   ): string | null {
     const dueDates = items
       .map((item) => item.data.dueDate)
-      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .filter(
+        (value): value is string =>
+          typeof value === 'string' && value.length > 0,
+      )
       .sort((left, right) => left.localeCompare(right));
 
     return dueDates[0] ?? null;
   }
 
-  private buildDueSoonMessage(daysUntilDue: number, expenseCount: number): string {
+  private buildDueSoonMessage(
+    daysUntilDue: number,
+    expenseCount: number,
+  ): string {
     if (daysUntilDue <= 0) {
       return expenseCount > 1
         ? 'Recorda que hoy vencen gastos.'

@@ -157,9 +157,7 @@ export class EmailService {
   ): string {
     const templatePath = join(this.templateDir, `${template}.hbs`);
     const templateSource = readFileSync(templatePath, 'utf8');
-    const compiledTemplate = compile(templateSource, {
-      noEscape: true,
-    });
+    const compiledTemplate = compile(templateSource);
 
     return compiledTemplate(context);
   }
