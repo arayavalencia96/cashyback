@@ -6,19 +6,26 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+
+import { RateLimitGuard } from 'src/common/rate-limit/rate-limit.guard';
+
 import { UserService } from './user.service';
-import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
-import { SetUserStatusDto } from './dto/set-user-status.dto';
+
+import { RateLimit } from 'src/common/rate-limit/rate-limit.decorator';
+
 import { CheckUserBlockStatusDto } from './dto/check-user-block-status.dto';
 import { ManualPasswordUpdateDto } from './dto/manual-password-update.dto';
-import { RateLimit } from 'src/common/rate-limit/rate-limit.decorator';
-import { RateLimitGuard } from 'src/common/rate-limit/rate-limit.guard';
+import { SetUserStatusDto } from './dto/set-user-status.dto';
+import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
 
 @UseGuards(RateLimitGuard)
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  /**
+   * Solicita un código para verificar la identidad de un usuario bloqueado.
+   */
   @RateLimit(
     {
       limit: 3,
@@ -42,6 +49,9 @@ export class UserController {
     return this.userService.requestBlockCode(uid);
   }
 
+  /**
+   * Verifica el código de desbloqueo y habilita el flujo de recuperación.
+   */
   @RateLimit(
     {
       limit: 5,
@@ -65,6 +75,9 @@ export class UserController {
     return this.userService.verifyBlockCode(uid, body.code);
   }
 
+  /**
+   * Consulta por correo el estado de bloqueo y recuperación de una cuenta.
+   */
   @RateLimit(
     {
       limit: 6,
@@ -88,6 +101,9 @@ export class UserController {
     return this.userService.checkBlockStatusByEmail(body.email);
   }
 
+  /**
+   * Registra un intento de inicio de sesión fallido para una cuenta.
+   */
   @RateLimit(
     {
       limit: 6,
@@ -111,6 +127,9 @@ export class UserController {
     return this.userService.registerFailedLoginAttempt(body.email);
   }
 
+  /**
+   * Reinicia los intentos fallidos después de una autenticación válida.
+   */
   @RateLimit(
     {
       limit: 10,
@@ -134,6 +153,9 @@ export class UserController {
     return this.userService.resetLoginAttempts(body.email);
   }
 
+  /**
+   * Reenvía el correo de recuperación para un usuario verificado.
+   */
   @RateLimit(
     {
       limit: 3,
@@ -157,6 +179,9 @@ export class UserController {
     return this.userService.resendPasswordResetEmail(uid);
   }
 
+  /**
+   * Actualiza la contraseña mediante una sesión de recuperación válida.
+   */
   @RateLimit(
     {
       limit: 5,
@@ -183,6 +208,9 @@ export class UserController {
     );
   }
 
+  /**
+   * Activa o desactiva una cuenta de Firebase Authentication.
+   */
   @RateLimit({
     limit: 12,
     windowMs: 60 * 1000,

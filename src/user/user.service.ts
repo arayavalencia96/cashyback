@@ -24,6 +24,16 @@ import {
   PasswordRecoverySessionRecord,
   ToggleUserStatusPayload,
   UserBlockCodeRecord,
+  RequestBlockCodeResult,
+  VerifyBlockCodeResult,
+  ResendPasswordResetResult,
+  ManualPasswordUpdateResult,
+  RegisterLoginAttemptResult,
+  UserLoginAttemptRecord,
+  ResetLoginAttemptResult,
+  ToggleUserStatusResult,
+  PasswordRecoverySessionSnapshot,
+  CheckBlockStatusResult,
 } from './interfaces/user-block-code.interface';
 
 const BLOCK_CODE_TTL_MINUTES = 5;
@@ -34,84 +44,10 @@ const LOGIN_ATTEMPTS_COLLECTION = 'user_login_attempts';
 const PASSWORD_RECOVERY_SESSION_COLLECTION = 'user_password_recovery_sessions';
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
-export interface RequestBlockCodeResult {
-  uid: string;
-  email: string;
-  disabled: boolean;
-  expiresAt: string;
-}
-
-export interface VerifyBlockCodeResult {
-  uid: string;
-  email: string;
-  disabled: boolean;
-  status: 'verified';
-  resetLinkSent: boolean;
-}
-
-export interface ResendPasswordResetResult {
-  uid: string;
-  email: string;
-  resetLinkSent: boolean;
-  passwordResetResendCount: number;
-}
-
-export interface ToggleUserStatusResult {
-  uid: string;
-  disabled: boolean;
-}
-
-export interface RegisterLoginAttemptResult {
-  uid: string;
-  email: string;
-  attemptCount: number;
-  remainingAttempts: number;
-  blocked: boolean;
-  codeSent: boolean;
-  expiresAt?: string;
-}
-
-export interface ResetLoginAttemptResult {
-  uid: string;
-  email: string;
-  attemptCount: 0;
-}
-
-export interface ManualPasswordUpdateResult {
-  uid: string;
-  email: string;
-  passwordUpdated: boolean;
-  passwordChangedAt: string;
-}
-
-interface UserLoginAttemptRecord {
-  email: string;
-  uid: string;
-  attemptCount: number;
-  blocked: boolean;
-  lastAttemptAt: string;
-  updatedAt: string;
-  blockedAt?: string;
-}
-
-interface PasswordRecoverySessionSnapshot extends PasswordRecoverySessionRecord {
-  sessionIdHash: string;
-}
-
 function stripUndefinedFields<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(value).filter(([, entry]) => entry !== undefined),
   ) as Partial<T>;
-}
-
-export interface CheckBlockStatusResult {
-  blocked: boolean;
-  uid: string;
-  email: string;
-  disabled: boolean;
-  codeSent: boolean;
-  expiresAt?: string;
-  passwordResetPending?: boolean;
 }
 
 @Injectable()
@@ -121,6 +57,12 @@ export class UserService {
     private readonly emailService: EmailService,
   ) {}
 
+  /**
+   * Genera y envía un código de verificación para un usuario bloqueado.
+   *
+   * @param uid Identificador del usuario en Firebase Authentication.
+   * @returns Estado del envío y vencimiento del código generado.
+   */
   async requestBlockCode(
     uid: string,
   ): Promise<ApiResponse<RequestBlockCodeResult>> {
@@ -195,6 +137,13 @@ export class UserService {
     );
   }
 
+  /**
+   * Verifica el código recibido y crea una sesión para cambiar la contraseña.
+   *
+   * @param uid Identificador del usuario en Firebase Authentication.
+   * @param code Código de verificación proporcionado por el usuario.
+   * @returns Estado de la verificación y datos de recuperación habilitados.
+   */
   async verifyBlockCode(
     uid: string,
     code: string,
@@ -364,6 +313,12 @@ export class UserService {
     );
   }
 
+  /**
+   * Genera una nueva sesión y reenvía el correo de recuperación.
+   *
+   * @param uid Identificador del usuario que completó la verificación.
+   * @returns Estado del reenvío y vencimiento de la nueva sesión.
+   */
   async resendPasswordResetEmail(
     uid: string,
   ): Promise<ApiResponse<ResendPasswordResetResult>> {
@@ -447,6 +402,13 @@ export class UserService {
     );
   }
 
+  /**
+   * Cambia la contraseña mediante una sesión de recuperación activa.
+   *
+   * @param sessionId Identificador opaco de la sesión de recuperación.
+   * @param newPassword Nueva contraseña que debe cumplir la política definida.
+   * @returns Confirmación del cambio y finalización de la recuperación.
+   */
   async updatePasswordManually(
     sessionId: string,
     newPassword: string,
@@ -547,6 +509,12 @@ export class UserService {
     );
   }
 
+  /**
+   * Consulta por correo el bloqueo, los intentos y la recuperación de una cuenta.
+   *
+   * @param email Correo de la cuenta que se debe consultar.
+   * @returns Estado público necesario para decidir el flujo de autenticación.
+   */
   async checkBlockStatusByEmail(
     email: string,
   ): Promise<ApiResponse<CheckBlockStatusResult>> {
@@ -590,8 +558,8 @@ export class UserService {
     );
 
     if (passwordResetPending && record) {
-      const changedAt = this.getTokensValidAfterDate(user.tokensValidAfterTime);
-      const sentAt = this.getRecordDate(record.passwordResetSentAt);
+      const changedAt = this.parseOptionalDate(user.tokensValidAfterTime);
+      const sentAt = this.parseOptionalDate(record.passwordResetSentAt);
 
       if (changedAt && sentAt && changedAt > sentAt) {
         const updatedAt = changedAt.toISOString();
@@ -700,6 +668,12 @@ export class UserService {
     );
   }
 
+  /**
+   * Registra un intento fallido y bloquea la cuenta al alcanzar el límite.
+   *
+   * @param email Correo normalizado de la cuenta.
+   * @returns Cantidad de intentos y estado de bloqueo resultante.
+   */
   async registerFailedLoginAttempt(
     email: string,
   ): Promise<ApiResponse<RegisterLoginAttemptResult>> {
@@ -780,6 +754,12 @@ export class UserService {
     );
   }
 
+  /**
+   * Reinicia el contador de intentos fallidos de una cuenta.
+   *
+   * @param email Correo de la cuenta autenticada correctamente.
+   * @returns Estado actualizado del contador de intentos.
+   */
   async resetLoginAttempts(
     email: string,
   ): Promise<ApiResponse<ResetLoginAttemptResult>> {
@@ -833,6 +813,13 @@ export class UserService {
     );
   }
 
+  /**
+   * Activa o desactiva una cuenta y sincroniza su registro de bloqueo.
+   *
+   * @param uid Identificador del usuario en Firebase Authentication.
+   * @param disabled Estado de desactivación que se debe aplicar.
+   * @returns Estado final de la cuenta.
+   */
   async setUserStatus(
     uid: string,
     disabled: boolean,
@@ -877,6 +864,12 @@ export class UserService {
     );
   }
 
+  /**
+   * Busca un usuario de Firebase Authentication por identificador.
+   *
+   * @param uid Identificador del usuario.
+   * @returns Registro de Firebase o `null` cuando no existe.
+   */
   private async findAuthUser(uid: string) {
     try {
       return await this.firebaseAdminService.getUser(uid);
@@ -891,6 +884,12 @@ export class UserService {
     }
   }
 
+  /**
+   * Busca un usuario de Firebase Authentication por correo.
+   *
+   * @param email Correo normalizado de la cuenta.
+   * @returns Registro de Firebase o `null` cuando no existe.
+   */
   private async findAuthUserByEmail(email: string): Promise<UserRecord | null> {
     try {
       return await this.firebaseAdminService.getUserByEmail(email);
@@ -899,6 +898,12 @@ export class UserService {
     }
   }
 
+  /**
+   * Obtiene el registro de código y bloqueo de un usuario.
+   *
+   * @param uid Identificador del usuario.
+   * @returns Registro persistido o `null` cuando no existe.
+   */
   private async getBlockCodeRecord(
     uid: string,
   ): Promise<UserBlockCodeRecord | null> {
@@ -914,6 +919,12 @@ export class UserService {
     return snapshot.data() as UserBlockCodeRecord;
   }
 
+  /**
+   * Obtiene el registro de intentos de inicio de sesión de un correo.
+   *
+   * @param email Correo normalizado usado como identificador.
+   * @returns Registro de intentos o `null` cuando no existe.
+   */
   private async getLoginAttemptRecord(
     email: string,
   ): Promise<UserLoginAttemptRecord | null> {
@@ -929,6 +940,12 @@ export class UserService {
     return snapshot.data() as UserLoginAttemptRecord;
   }
 
+  /**
+   * Busca una sesión de recuperación mediante su identificador sin exponerlo.
+   *
+   * @param sessionId Identificador opaco recibido del cliente.
+   * @returns Sesión persistida junto con su hash o `null`.
+   */
   private async findPasswordRecoverySessionById(
     sessionId: string,
   ): Promise<PasswordRecoverySessionSnapshot | null> {
@@ -948,6 +965,12 @@ export class UserService {
     };
   }
 
+  /**
+   * Busca una sesión de recuperación activa para un usuario.
+   *
+   * @param uid Identificador del usuario.
+   * @returns Primera sesión activa encontrada o `null`.
+   */
   private async findActivePasswordRecoverySessionByUid(
     uid: string,
   ): Promise<PasswordRecoverySessionSnapshot | null> {
@@ -971,6 +994,13 @@ export class UserService {
     };
   }
 
+  /**
+   * Expira sesiones anteriores y crea una nueva sesión de recuperación.
+   *
+   * @param uid Identificador del usuario.
+   * @param email Correo asociado a la recuperación.
+   * @returns Identificador de sesión y fecha de vencimiento.
+   */
   private async ensurePasswordRecoverySession(
     uid: string,
     email: string,
@@ -1006,6 +1036,11 @@ export class UserService {
     };
   }
 
+  /**
+   * Marca como expiradas las sesiones de recuperación activas de un usuario.
+   *
+   * @param uid Identificador del usuario cuyas sesiones deben invalidarse.
+   */
   private async expireActivePasswordRecoverySessions(
     uid: string,
   ): Promise<void> {
@@ -1039,6 +1074,12 @@ export class UserService {
     );
   }
 
+  /**
+   * Marca una sesión como consumida después del cambio de contraseña.
+   *
+   * @param session Sesión utilizada para autorizar el cambio.
+   * @param passwordChangedAt Fecha efectiva del cambio.
+   */
   private async consumePasswordRecoverySession(
     session: PasswordRecoverySessionSnapshot,
     passwordChangedAt: string,
@@ -1055,6 +1096,11 @@ export class UserService {
       });
   }
 
+  /**
+   * Marca una sesión de recuperación específica como expirada.
+   *
+   * @param session Sesión que ya no debe aceptarse.
+   */
   private async markPasswordRecoverySessionExpired(
     session: PasswordRecoverySessionSnapshot,
   ): Promise<void> {
@@ -1068,7 +1114,13 @@ export class UserService {
       });
   }
 
-  private getTokensValidAfterDate(value: string | undefined): Date | null {
+  /**
+   * Convierte una fecha opcional a un objeto Date válido.
+   *
+   * @param value Fecha serializada que se debe interpretar.
+   * @returns Fecha válida o `null` si está ausente o es inválida.
+   */
+  private parseOptionalDate(value: string | null | undefined): Date | null {
     if (!value) {
       return null;
     }
@@ -1078,16 +1130,12 @@ export class UserService {
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  private getRecordDate(value: string | undefined): Date | null {
-    if (!value) {
-      return null;
-    }
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
+  /**
+   * Marca como expirado un código de verificación persistido.
+   *
+   * @param uid Identificador del usuario propietario.
+   * @param record Registro de código que se debe actualizar.
+   */
   private async markBlockCodeExpired(
     uid: string,
     record: UserBlockCodeRecord,
@@ -1104,6 +1152,12 @@ export class UserService {
       .set(expiredRecord);
   }
 
+  /**
+   * Incrementa y persiste los intentos fallidos de verificación de un código.
+   *
+   * @param uid Identificador del usuario.
+   * @param record Registro actual del código.
+   */
   private async incrementAttemptCount(
     uid: string,
     record: UserBlockCodeRecord,
@@ -1120,14 +1174,32 @@ export class UserService {
       .set(nextRecord);
   }
 
+  /**
+   * Genera un código numérico criptográficamente aleatorio.
+   *
+   * @returns Código de verificación de seis dígitos.
+   */
   private generateCode(): string {
     return randomInt(100000, 1000000).toString();
   }
 
+  /**
+   * Genera el hash de un código ligado a su usuario.
+   *
+   * @param uid Identificador del usuario.
+   * @param code Código de verificación en texto plano.
+   * @returns Hash SHA-256 utilizado para la comparación segura.
+   */
   private hashCode(uid: string, code: string): string {
     return createHash('sha256').update(`${uid}:${code}`).digest('hex');
   }
 
+  /**
+   * Formatea una fecha para mostrarla en la zona horaria argentina.
+   *
+   * @param value Fecha ISO que se debe representar.
+   * @returns Fecha y hora localizadas para Argentina.
+   */
   private formatArgentinaDateTime(value: string): string {
     const date = new Date(value);
 
@@ -1152,6 +1224,13 @@ export class UserService {
     return `${getPart('day')}/${getPart('month')}/${getPart('year')} ${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
   }
 
+  /**
+   * Resuelve el nombre visible más adecuado para personalizar mensajes.
+   *
+   * @param displayName Nombre registrado en Firebase Authentication.
+   * @param email Correo utilizado como alternativa.
+   * @returns Nombre visible o identificador derivado del correo.
+   */
   private resolveDisplayName(
     displayName: string | null | undefined,
     email: string,
@@ -1167,14 +1246,27 @@ export class UserService {
     return emailPrefix && emailPrefix.length > 0 ? emailPrefix : 'usuario';
   }
 
+  /**
+   * Normaliza un correo para consultas e identificadores consistentes.
+   *
+   * @param email Correo opcional que se debe normalizar.
+   * @returns Correo sin espacios y en minúsculas.
+   */
   private normalizeEmail(email: string | null | undefined): string {
     return email?.trim().toLowerCase() ?? '';
   }
 
+  /**
+   * Construye el enlace del frontend para completar la recuperación.
+   *
+   * @param sessionId Identificador opaco de la sesión.
+   * @param email Correo asociado a la cuenta.
+   * @returns URL absoluta con los parámetros de recuperación.
+   */
   private buildPasswordRecoveryLink(sessionId: string, email: string): string {
     const frontendUrl =
       readOptionalEnv('FRONTEND_URL') ?? 'http://localhost:4200';
-    const baseUrl = frontendUrl.replace(/\/+$/, '');
+    const baseUrl = frontendUrl.replace(/\/$/, '');
     const url = new URL(`${baseUrl}/set-new-password`);
     url.searchParams.set('session', sessionId);
     url.searchParams.set('email', email);
@@ -1182,14 +1274,31 @@ export class UserService {
     return url.toString();
   }
 
+  /**
+   * Genera un identificador seguro para una sesión de recuperación.
+   *
+   * @returns Identificador aleatorio codificado para URL.
+   */
   private generatePasswordRecoverySessionId(): string {
     return randomBytes(32).toString('base64url');
   }
 
+  /**
+   * Genera el identificador persistente de una sesión de recuperación.
+   *
+   * @param sessionId Identificador opaco entregado al cliente.
+   * @returns Hash SHA-256 que se almacena en Firestore.
+   */
   private hashPasswordRecoverySessionId(sessionId: string): string {
     return createHash('sha256').update(sessionId).digest('hex');
   }
 
+  /**
+   * Comprueba que una contraseña cumpla la política mínima de seguridad.
+   *
+   * @param password Contraseña que se debe validar.
+   * @returns `true` cuando cumple todos los requisitos.
+   */
   private isValidPassword(password: string): boolean {
     return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password);
   }

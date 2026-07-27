@@ -22,6 +22,30 @@ export interface FixedExpenseNotificationRecord {
   partialPaymentAmount?: number | null;
 }
 
+export interface FixedExpenseItem {
+  id: string;
+  data: FixedExpenseNotificationRecord;
+}
+
+export interface DueReminderProcessingStats {
+  notifiedUsers: number;
+  overdueUsers: number;
+  dueSoonUsers: number;
+  skippedAlreadySent: number;
+  usersWithoutSubscriptions: number;
+  deliveredCount: number;
+  failedCount: number;
+}
+
+export interface ProcessUserDueReminderInput {
+  uid: string;
+  todayKey: string;
+  alreadySent: boolean;
+  subscriptions: PushSubscriptionRecord[];
+  overdueItems: FixedExpenseItem[];
+  dueSoonItems: FixedExpenseItem[];
+}
+
 export interface DueReminderLogRecord {
   uid: string;
   dateKey: string;

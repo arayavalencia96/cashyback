@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { createHash } from 'node:crypto';
 import type { BatchResponse } from 'firebase-admin/messaging';
@@ -18,8 +13,10 @@ import { FirebaseAdminService } from 'src/common/services/firebase.service';
 
 import type {
   DueReminderLogRecord,
+  DueReminderProcessingStats,
   FixedExpenseNotificationRecord,
   ProcessDueRemindersResult,
+  ProcessUserDueReminderInput,
   PushConfigResult,
   PushStatusResult,
   PushSubscribeResult,
@@ -47,10 +44,13 @@ function stripUndefinedFields<T extends object>(value: T): Partial<T> {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(
-    private readonly firebaseAdminService: FirebaseAdminService,
-  ) {}
+  constructor(private readonly firebaseAdminService: FirebaseAdminService) {}
 
+  /**
+   * Obtiene la configuración pública de Firebase Web Push.
+   *
+   * @returns Estado de configuración y clave pública VAPID.
+   */
   getWebConfig(): ApiResponse<PushConfigResult> {
     const vapidPublicKey = this.getVapidPublicKey();
 
@@ -65,6 +65,12 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Consulta cuántos dispositivos activos tiene suscritos un usuario.
+   *
+   * @param uid Identificador del usuario autenticado.
+   * @returns Estado de soporte, configuración y cantidad de dispositivos.
+   */
   async getStatus(uid: string): Promise<ApiResponse<PushStatusResult>> {
     const activeDeviceCount = await this.countActiveSubscriptions(uid);
 
@@ -80,6 +86,13 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Registra o actualiza una suscripción web push para un dispositivo.
+   *
+   * @param uid Identificador del usuario propietario.
+   * @param input Token, plataforma e información del dispositivo.
+   * @returns Confirmación y cantidad actual de dispositivos activos.
+   */
   async subscribeWebPush(
     uid: string,
     input: {
@@ -144,6 +157,13 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Elimina una suscripción web push cuando pertenece al usuario indicado.
+   *
+   * @param uid Identificador del usuario propietario.
+   * @param token Token de registro que se debe eliminar.
+   * @returns Confirmación y cantidad restante de dispositivos activos.
+   */
   async unsubscribeWebPush(
     uid: string,
     token: string,
@@ -183,6 +203,11 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Procesa los gastos vencidos y próximos a vencer de todos los usuarios.
+   *
+   * @returns Métricas de usuarios procesados y notificaciones entregadas.
+   */
   async processDueReminders(): Promise<ApiResponse<ProcessDueRemindersResult>> {
     this.ensurePushConfigured();
     const todayKey = this.getTodayDateKey();
@@ -228,114 +253,26 @@ export class NotificationsService {
       Array.from(candidateUsers),
     );
 
-    let notifiedUsers = 0;
-    let overdueUsers = 0;
-    let dueSoonUsers = 0;
-    let skippedAlreadySent = 0;
-    let usersWithoutSubscriptions = 0;
-    let deliveredCount = 0;
-    let failedCount = 0;
+    const stats = this.createEmptyDueReminderStats();
 
     for (const uid of candidateUsers) {
-      if (alreadySentUsers.has(uid)) {
-        skippedAlreadySent += 1;
-        continue;
-      }
+      const userStats = await this.processUserDueReminder({
+        uid,
+        todayKey,
+        alreadySent: alreadySentUsers.has(uid),
+        subscriptions: subscriptionsByUser.get(uid) ?? [],
+        overdueItems: overdueByUser.get(uid) ?? [],
+        dueSoonItems: dueSoonByUser.get(uid) ?? [],
+      });
 
-      const subscriptions = subscriptionsByUser.get(uid) ?? [];
-
-      if (subscriptions.length === 0) {
-        usersWithoutSubscriptions += 1;
-        continue;
-      }
-
-      const overdueItems = overdueByUser.get(uid) ?? [];
-
-      if (overdueItems.length > 0) {
-        const sendResult = await this.sendNotificationToSubscriptions(
-          subscriptions,
-          {
-            notificationId: `${todayKey}:${uid}:overdue`,
-            title: 'Cashy',
-            body: 'Tenes vencido un gasto.',
-            url: this.buildFixedExpensesUrl(),
-          },
-        );
-
-        if (sendResult.delivered > 0) {
-          notifiedUsers += 1;
-          overdueUsers += 1;
-          deliveredCount += sendResult.delivered;
-          failedCount += sendResult.failed;
-          await this.createDueReminderLog({
-            uid,
-            dateKey: todayKey,
-            reminderType: 'overdue',
-            expenseIds: overdueItems.map((item) => item.id),
-            sentAt: new Date().toISOString(),
-            deliveredCount: sendResult.delivered,
-            failedCount: sendResult.failed,
-            dueDate: this.getEarliestDueDate(overdueItems),
-            daysUntilDue: null,
-          });
-        }
-
-        continue;
-      }
-
-      const dueSoonItems = dueSoonByUser.get(uid) ?? [];
-
-      if (dueSoonItems.length === 0) {
-        continue;
-      }
-
-      const nearestDueDate = this.getEarliestDueDate(dueSoonItems);
-
-      if (!nearestDueDate) {
-        continue;
-      }
-
-      const daysUntilDue = this.diffDaysBetweenDateKeys(todayKey, nearestDueDate);
-      const sendResult = await this.sendNotificationToSubscriptions(
-        subscriptions,
-        {
-          notificationId: `${todayKey}:${uid}:due-soon`,
-          title: 'Cashy',
-          body: this.buildDueSoonMessage(daysUntilDue, dueSoonItems.length),
-          url: this.buildFixedExpensesUrl(),
-        },
-      );
-
-      if (sendResult.delivered > 0) {
-        notifiedUsers += 1;
-        dueSoonUsers += 1;
-        deliveredCount += sendResult.delivered;
-        failedCount += sendResult.failed;
-        await this.createDueReminderLog({
-          uid,
-          dateKey: todayKey,
-          reminderType: 'due-soon',
-          expenseIds: dueSoonItems.map((item) => item.id),
-          sentAt: new Date().toISOString(),
-          deliveredCount: sendResult.delivered,
-          failedCount: sendResult.failed,
-          dueDate: nearestDueDate,
-          daysUntilDue,
-        });
-      }
+      this.mergeDueReminderStats(stats, userStats);
     }
 
     return buildSuccessResponse(
       {
         dateKey: todayKey,
         processedUsers: candidateUsers.size,
-        notifiedUsers,
-        overdueUsers,
-        dueSoonUsers,
-        skippedAlreadySent,
-        usersWithoutSubscriptions,
-        deliveredCount,
-        failedCount,
+        ...stats,
       },
       'Recordatorios procesados',
       'Se procesaron los recordatorios diarios de gastos vencidos y por vencer.',
@@ -343,10 +280,184 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Determina y procesa el recordatorio correspondiente a un usuario.
+   *
+   * @param input Suscripciones, gastos y estado diario del usuario.
+   * @returns Variación de métricas producida por el procesamiento.
+   */
+  private async processUserDueReminder(
+    input: ProcessUserDueReminderInput,
+  ): Promise<DueReminderProcessingStats> {
+    if (input.alreadySent) {
+      return {
+        ...this.createEmptyDueReminderStats(),
+        skippedAlreadySent: 1,
+      };
+    }
+
+    if (input.subscriptions.length === 0) {
+      return {
+        ...this.createEmptyDueReminderStats(),
+        usersWithoutSubscriptions: 1,
+      };
+    }
+
+    if (input.overdueItems.length > 0) {
+      return this.sendOverdueReminder(input);
+    }
+
+    return this.sendDueSoonReminder(input);
+  }
+
+  /**
+   * Envía y registra un recordatorio de gastos vencidos.
+   *
+   * @param input Datos del usuario y sus gastos vencidos.
+   * @returns Métricas de entrega del recordatorio.
+   */
+  private async sendOverdueReminder(
+    input: ProcessUserDueReminderInput,
+  ): Promise<DueReminderProcessingStats> {
+    const sendResult = await this.sendNotificationToSubscriptions(
+      input.subscriptions,
+      {
+        notificationId: `${input.todayKey}:${input.uid}:overdue`,
+        title: 'Cashy',
+        body: 'Tenes vencido un gasto.',
+        url: this.buildFixedExpensesUrl(),
+      },
+    );
+
+    if (sendResult.delivered === 0) {
+      return this.createEmptyDueReminderStats();
+    }
+
+    await this.createDueReminderLog({
+      uid: input.uid,
+      dateKey: input.todayKey,
+      reminderType: 'overdue',
+      expenseIds: input.overdueItems.map((item) => item.id),
+      sentAt: new Date().toISOString(),
+      deliveredCount: sendResult.delivered,
+      failedCount: sendResult.failed,
+      dueDate: this.getEarliestDueDate(input.overdueItems),
+      daysUntilDue: null,
+    });
+
+    return {
+      ...this.createEmptyDueReminderStats(),
+      notifiedUsers: 1,
+      overdueUsers: 1,
+      deliveredCount: sendResult.delivered,
+      failedCount: sendResult.failed,
+    };
+  }
+
+  /**
+   * Envía y registra un recordatorio de próximos vencimientos.
+   *
+   * @param input Datos del usuario y sus gastos por vencer.
+   * @returns Métricas de entrega del recordatorio.
+   */
+  private async sendDueSoonReminder(
+    input: ProcessUserDueReminderInput,
+  ): Promise<DueReminderProcessingStats> {
+    const nearestDueDate = this.getEarliestDueDate(input.dueSoonItems);
+
+    if (!nearestDueDate) {
+      return this.createEmptyDueReminderStats();
+    }
+
+    const daysUntilDue = this.diffDaysBetweenDateKeys(
+      input.todayKey,
+      nearestDueDate,
+    );
+    const sendResult = await this.sendNotificationToSubscriptions(
+      input.subscriptions,
+      {
+        notificationId: `${input.todayKey}:${input.uid}:due-soon`,
+        title: 'Cashy',
+        body: this.buildDueSoonMessage(daysUntilDue, input.dueSoonItems.length),
+        url: this.buildFixedExpensesUrl(),
+      },
+    );
+
+    if (sendResult.delivered === 0) {
+      return this.createEmptyDueReminderStats();
+    }
+
+    await this.createDueReminderLog({
+      uid: input.uid,
+      dateKey: input.todayKey,
+      reminderType: 'due-soon',
+      expenseIds: input.dueSoonItems.map((item) => item.id),
+      sentAt: new Date().toISOString(),
+      deliveredCount: sendResult.delivered,
+      failedCount: sendResult.failed,
+      dueDate: nearestDueDate,
+      daysUntilDue,
+    });
+
+    return {
+      ...this.createEmptyDueReminderStats(),
+      notifiedUsers: 1,
+      dueSoonUsers: 1,
+      deliveredCount: sendResult.delivered,
+      failedCount: sendResult.failed,
+    };
+  }
+
+  /**
+   * Crea un conjunto de métricas inicializado en cero.
+   *
+   * @returns Estadísticas vacías para acumular resultados.
+   */
+  private createEmptyDueReminderStats(): DueReminderProcessingStats {
+    return {
+      notifiedUsers: 0,
+      overdueUsers: 0,
+      dueSoonUsers: 0,
+      skippedAlreadySent: 0,
+      usersWithoutSubscriptions: 0,
+      deliveredCount: 0,
+      failedCount: 0,
+    };
+  }
+
+  /**
+   * Acumula las métricas de un usuario en el resultado general.
+   *
+   * @param target Estadísticas generales que se deben modificar.
+   * @param source Estadísticas que se deben sumar.
+   */
+  private mergeDueReminderStats(
+    target: DueReminderProcessingStats,
+    source: DueReminderProcessingStats,
+  ): void {
+    target.notifiedUsers += source.notifiedUsers;
+    target.overdueUsers += source.overdueUsers;
+    target.dueSoonUsers += source.dueSoonUsers;
+    target.skippedAlreadySent += source.skippedAlreadySent;
+    target.usersWithoutSubscriptions += source.usersWithoutSubscriptions;
+    target.deliveredCount += source.deliveredCount;
+    target.failedCount += source.failedCount;
+  }
+
+  /**
+   * Lee la clave pública VAPID configurada para Firebase Web Push.
+   *
+   * @returns Clave pública o `undefined` cuando no está configurada.
+   */
   private getVapidPublicKey(): string | undefined {
     return readOptionalEnv('FIREBASE_WEB_PUSH_PUBLIC_KEY');
   }
 
+  /**
+   * Comprueba que exista la configuración mínima para enviar notificaciones.
+   *
+   * @throws BadRequestException Si falta la clave pública VAPID.
+   */
   private ensurePushConfigured(): void {
     if (this.getVapidPublicKey()) {
       return;
@@ -361,6 +472,12 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Cuenta las suscripciones activas asociadas a un usuario.
+   *
+   * @param uid Identificador del usuario.
+   * @returns Cantidad de suscripciones activas.
+   */
   private async countActiveSubscriptions(uid: string): Promise<number> {
     const snapshot = await this.firebaseAdminService.firestore
       .collection(PUSH_SUBSCRIPTIONS_COLLECTION)
@@ -371,6 +488,12 @@ export class NotificationsService {
     return snapshot.size;
   }
 
+  /**
+   * Obtiene todas las suscripciones activas de un usuario.
+   *
+   * @param uid Identificador del usuario.
+   * @returns Suscripciones activas encontradas en Firestore.
+   */
   private async listActiveSubscriptions(
     uid: string,
   ): Promise<Array<PushSubscriptionRecord>> {
@@ -380,9 +503,18 @@ export class NotificationsService {
       .where('active', '==', true)
       .get();
 
-    return snapshot.docs.map((document) => document.data() as PushSubscriptionRecord);
+    return snapshot.docs.map(
+      (document) => document.data() as PushSubscriptionRecord,
+    );
   }
 
+  /**
+   * Elimina tokens anteriores del mismo usuario y dispositivo.
+   *
+   * @param uid Identificador del usuario.
+   * @param deviceId Identificador estable del dispositivo.
+   * @param currentDocumentId Hash del token que debe conservarse.
+   */
   private async deletePreviousDeviceSubscriptions(
     uid: string,
     deviceId: string,
@@ -396,10 +528,18 @@ export class NotificationsService {
     );
 
     await Promise.all(
-      duplicates.map((subscription) => this.deleteSubscription(subscription.token)),
+      duplicates.map((subscription) =>
+        this.deleteSubscription(subscription.token),
+      ),
     );
   }
 
+  /**
+   * Obtiene y agrupa suscripciones activas para varios usuarios.
+   *
+   * @param userIds Identificadores que se deben consultar.
+   * @returns Suscripciones indexadas por identificador de usuario.
+   */
   private async listActiveSubscriptionsByUserIds(
     userIds: Array<string>,
   ): Promise<Map<string, Array<PushSubscriptionRecord>>> {
@@ -424,6 +564,12 @@ export class NotificationsService {
     return grouped;
   }
 
+  /**
+   * Consulta gastos pendientes con vencimiento anterior a la fecha actual.
+   *
+   * @param todayKey Fecha actual con formato `YYYY-MM-DD`.
+   * @returns Gastos vencidos que todavía requieren pago.
+   */
   private async queryOverdueExpenses(
     todayKey: string,
   ): Promise<Array<{ id: string; data: FixedExpenseNotificationRecord }>> {
@@ -440,6 +586,13 @@ export class NotificationsService {
       .filter((item) => this.isPendingExpense(item.data));
   }
 
+  /**
+   * Consulta gastos pendientes dentro del rango de próximos vencimientos.
+   *
+   * @param todayKey Inicio del rango con formato `YYYY-MM-DD`.
+   * @param dueSoonEndKey Fin inclusivo del rango.
+   * @returns Gastos pendientes que vencen dentro del rango.
+   */
   private async queryDueSoonExpenses(
     todayKey: string,
     dueSoonEndKey: string,
@@ -458,6 +611,12 @@ export class NotificationsService {
       .filter((item) => this.isPendingExpense(item.data));
   }
 
+  /**
+   * Agrupa gastos válidos por su usuario propietario.
+   *
+   * @param items Documentos de gastos obtenidos desde Firestore.
+   * @returns Gastos indexados por identificador de usuario.
+   */
   private groupExpensesByUser(
     items: Array<{ id: string; data: FixedExpenseNotificationRecord }>,
   ): Map<string, Array<{ id: string; data: FixedExpenseNotificationRecord }>> {
@@ -488,6 +647,12 @@ export class NotificationsService {
     return grouped;
   }
 
+  /**
+   * Determina si un gasto todavía debe considerarse pendiente.
+   *
+   * @param item Datos del gasto fijo.
+   * @returns `true` cuando admite el envío de un recordatorio.
+   */
   private isPendingExpense(item: FixedExpenseNotificationRecord): boolean {
     if (!item.dueDate?.trim()) {
       return false;
@@ -497,13 +662,23 @@ export class NotificationsService {
       return item.paymentStatus === 'pending';
     }
 
-    if (typeof item.partialPaymentAmount === 'number' && item.partialPaymentAmount > 0) {
+    if (
+      typeof item.partialPaymentAmount === 'number' &&
+      item.partialPaymentAmount > 0
+    ) {
       return false;
     }
 
     return item.isPaid !== true;
   }
 
+  /**
+   * Obtiene los usuarios que ya recibieron un recordatorio en una fecha.
+   *
+   * @param userIds Usuarios candidatos al envío.
+   * @param dateKey Fecha diaria con formato `YYYY-MM-DD`.
+   * @returns Identificadores con un registro diario existente.
+   */
   private async getLoggedUsersForDate(
     userIds: Array<string>,
     dateKey: string,
@@ -529,7 +704,14 @@ export class NotificationsService {
     return loggedUsers;
   }
 
-  private async createDueReminderLog(record: DueReminderLogRecord): Promise<void> {
+  /**
+   * Persiste el resultado de un recordatorio diario entregado.
+   *
+   * @param record Datos de entrega y gastos asociados.
+   */
+  private async createDueReminderLog(
+    record: DueReminderLogRecord,
+  ): Promise<void> {
     const documentId = `${record.dateKey}_${record.uid}`;
 
     await this.firebaseAdminService.firestore
@@ -538,6 +720,13 @@ export class NotificationsService {
       .set(record);
   }
 
+  /**
+   * Envía una notificación a todas las suscripciones indicadas.
+   *
+   * @param subscriptions Dispositivos destinatarios.
+   * @param payload Identificador, contenido y URL de la notificación.
+   * @returns Cantidades de entregas exitosas y fallidas.
+   */
   private async sendNotificationToSubscriptions(
     subscriptions: Array<PushSubscriptionRecord>,
     payload: {
@@ -547,9 +736,9 @@ export class NotificationsService {
       url: string;
     },
   ): Promise<{ delivered: number; failed: number }> {
-    const response = await this.firebaseAdminService.messaging.sendEachForMulticast(
-      {
-        tokens: subscriptions.map((subscription) => subscription.token),
+    const response = await this.firebaseAdminService.messaging.sendEach(
+      subscriptions.map((subscription) => ({
+        token: subscription.token,
         data: {
           notificationId: payload.notificationId,
           title: payload.title,
@@ -562,7 +751,7 @@ export class NotificationsService {
             link: payload.url,
           },
         },
-      },
+      })),
       false,
     );
 
@@ -574,6 +763,12 @@ export class NotificationsService {
     };
   }
 
+  /**
+   * Actualiza o elimina suscripciones según la respuesta de Firebase.
+   *
+   * @param subscriptions Suscripciones en el mismo orden que las respuestas.
+   * @param response Resultado por destinatario devuelto por Firebase.
+   */
   private async handleSendResponse(
     subscriptions: Array<PushSubscriptionRecord>,
     response: BatchResponse,
@@ -620,6 +815,12 @@ export class NotificationsService {
     await Promise.all(updates);
   }
 
+  /**
+   * Actualiza los metadatos operativos de una suscripción.
+   *
+   * @param token Token utilizado para identificar el documento.
+   * @param patch Campos que se deben actualizar.
+   */
   private async updateSubscriptionMetadata(
     token: string,
     patch: Partial<PushSubscriptionRecord>,
@@ -629,12 +830,20 @@ export class NotificationsService {
     await this.firebaseAdminService.firestore
       .collection(PUSH_SUBSCRIPTIONS_COLLECTION)
       .doc(documentId)
-      .set(stripUndefinedFields({
-        ...patch,
-        updatedAt: new Date().toISOString(),
-      }), { merge: true });
+      .set(
+        stripUndefinedFields({
+          ...patch,
+          updatedAt: new Date().toISOString(),
+        }),
+        { merge: true },
+      );
   }
 
+  /**
+   * Elimina de Firestore una suscripción identificada por su token.
+   *
+   * @param token Token de registro que se debe eliminar.
+   */
   private async deleteSubscription(token: string): Promise<void> {
     const documentId = this.hashToken(token);
 
@@ -644,21 +853,42 @@ export class NotificationsService {
       .delete();
   }
 
+  /**
+   * Genera el identificador persistente de una suscripción.
+   *
+   * @param token Token de registro de Firebase.
+   * @returns Hash SHA-256 del token.
+   */
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }
 
+  /**
+   * Construye la URL de la sección de gastos fijos.
+   *
+   * @returns URL absoluta utilizada al abrir una notificación.
+   */
   private buildFixedExpensesUrl(): string {
     const appBaseUrl =
       readOptionalEnv('APP_BASE_URL') ?? 'https://cashy-cd3e6.web.app';
 
-    return `${appBaseUrl.replace(/\/+$/, '')}/fijos`;
+    return `${appBaseUrl.replace(/\/$/, '')}/fijos`;
   }
 
+  /**
+   * Obtiene la fecha actual en la zona horaria configurada para recordatorios.
+   *
+   * @returns Fecha con formato `YYYY-MM-DD`.
+   */
   private getTodayDateKey(): string {
     return this.formatDateKeyInTimeZone(new Date(), DEFAULT_TIME_ZONE);
   }
 
+  /**
+   * Resuelve cuántos días antes deben enviarse los recordatorios.
+   *
+   * @returns Cantidad entera de días configurada o valor predeterminado.
+   */
   private getDueSoonReminderDays(): number {
     const rawValue = Number(readOptionalEnv('DUE_SOON_REMINDER_DAYS'));
 
@@ -669,6 +899,13 @@ export class NotificationsService {
     return Math.max(0, Math.floor(rawValue));
   }
 
+  /**
+   * Formatea una fecha para una zona horaria específica.
+   *
+   * @param date Fecha que se debe convertir.
+   * @param timeZone Zona horaria reconocida por `Intl`.
+   * @returns Fecha con formato `YYYY-MM-DD`.
+   */
   private formatDateKeyInTimeZone(date: Date, timeZone: string): string {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone,
@@ -682,12 +919,21 @@ export class NotificationsService {
     const day = parts.find((part) => part.type === 'day')?.value;
 
     if (!year || !month || !day) {
-      throw new Error('No se pudo resolver la fecha actual en la zona horaria configurada.');
+      throw new Error(
+        'No se pudo resolver la fecha actual en la zona horaria configurada.',
+      );
     }
 
     return `${year}-${month}-${day}`;
   }
 
+  /**
+   * Suma una cantidad de días a una clave de fecha.
+   *
+   * @param dateKey Fecha base con formato `YYYY-MM-DD`.
+   * @param days Cantidad de días que se deben sumar.
+   * @returns Nueva clave de fecha.
+   */
   private addDaysToDateKey(dateKey: string, days: number): string {
     const [year, month, day] = dateKey.split('-').map(Number);
     const date = new Date(Date.UTC(year, month - 1, day));
@@ -701,6 +947,13 @@ export class NotificationsService {
     ].join('-');
   }
 
+  /**
+   * Calcula la diferencia de días entre dos claves de fecha.
+   *
+   * @param from Fecha inicial con formato `YYYY-MM-DD`.
+   * @param to Fecha final con formato `YYYY-MM-DD`.
+   * @returns Diferencia entera de días.
+   */
   private diffDaysBetweenDateKeys(from: string, to: string): number {
     const fromDate = this.parseDateKey(from);
     const toDate = this.parseDateKey(to);
@@ -710,23 +963,48 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Convierte una clave `YYYY-MM-DD` en una fecha UTC.
+   *
+   * @param value Clave de fecha que se debe interpretar.
+   * @returns Fecha construida en UTC.
+   */
   private parseDateKey(value: string): Date {
     const [year, month, day] = value.split('-').map(Number);
     return new Date(Date.UTC(year, month - 1, day));
   }
 
+  /**
+   * Obtiene el vencimiento más cercano entre varios gastos.
+   *
+   * @param items Gastos que se deben comparar.
+   * @returns Fecha más próxima o `null` cuando no existe una válida.
+   */
   private getEarliestDueDate(
     items: Array<{ id: string; data: FixedExpenseNotificationRecord }>,
   ): string | null {
     const dueDates = items
       .map((item) => item.data.dueDate)
-      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .filter(
+        (value): value is string =>
+          typeof value === 'string' && value.length > 0,
+      )
       .sort((left, right) => left.localeCompare(right));
 
     return dueDates[0] ?? null;
   }
 
-  private buildDueSoonMessage(daysUntilDue: number, expenseCount: number): string {
+  /**
+   * Construye el texto del recordatorio según días y cantidad de gastos.
+   *
+   * @param daysUntilDue Días restantes hasta el vencimiento.
+   * @param expenseCount Cantidad de gastos incluidos.
+   * @returns Mensaje localizado para la notificación.
+   */
+  private buildDueSoonMessage(
+    daysUntilDue: number,
+    expenseCount: number,
+  ): string {
     if (daysUntilDue <= 0) {
       return expenseCount > 1
         ? 'Recorda que hoy vencen gastos.'
@@ -740,6 +1018,13 @@ export class NotificationsService {
     return `Recorda que en ${daysUntilDue} ${daysUntilDue === 1 ? 'dia' : 'dias'} vence un gasto.`;
   }
 
+  /**
+   * Divide una colección en bloques compatibles con los límites de Firestore.
+   *
+   * @param items Elementos que se deben dividir.
+   * @param size Cantidad máxima de elementos por bloque.
+   * @returns Lista de bloques conservando el orden original.
+   */
   private chunkArray<T>(items: Array<T>, size: number): Array<Array<T>> {
     const chunks: Array<Array<T>> = [];
 

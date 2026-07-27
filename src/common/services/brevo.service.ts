@@ -39,6 +39,12 @@ export class BrevoService {
     this.sender = this.readSenderConfig();
   }
 
+  /**
+   * Envía un correo transaccional mediante la API de Brevo.
+   *
+   * @param input Destinatario, asunto, contenido y respuesta opcional.
+   * @throws Error Si Brevo rechaza, limita o no responde al envío.
+   */
   async sendTransactionalEmail(input: TransactionalEmailInput): Promise<void> {
     try {
       await this.client.transactionalEmails.sendTransacEmail({
@@ -76,6 +82,12 @@ export class BrevoService {
     }
   }
 
+  /**
+   * Resuelve el remitente desde las variables de entorno disponibles.
+   *
+   * @returns Correo y nombre opcional del remitente.
+   * @throws Error Si no existe una configuración de remitente.
+   */
   private readSenderConfig(): SenderConfig {
     const senderEmail = readOptionalEnv('BREVO_SENDER_EMAIL');
     const senderName = readOptionalEnv('BREVO_SENDER_NAME');
@@ -102,6 +114,13 @@ export class BrevoService {
     );
   }
 
+  /**
+   * Interpreta una configuración `MAIL_FROM` con nombre opcional.
+   *
+   * @param value Valor configurado para el remitente.
+   * @returns Correo y nombre opcional normalizados.
+   * @throws Error Si el formato contiene un correo vacío.
+   */
   private parseMailFrom(value: string): SenderConfig {
     const normalized = value.trim().replace(/^["']|["']$/g, '');
     const match = /^(.*)<([^>]+)>$/.exec(normalized);
@@ -125,6 +144,12 @@ export class BrevoService {
     };
   }
 
+  /**
+   * Obtiene únicamente el nombre de una configuración de remitente.
+   *
+   * @param value Configuración opcional de `MAIL_FROM`.
+   * @returns Nombre del remitente o `undefined`.
+   */
   private extractSenderName(value: string | undefined): string | undefined {
     if (!value) {
       return undefined;

@@ -45,6 +45,11 @@ export class EmailService {
     this.supportEmail = this.readSupportEmail();
   }
 
+  /**
+   * Envía el código de verificación para una cuenta bloqueada.
+   *
+   * @param payload Usuario, código, correo y vencimiento del mensaje.
+   */
   async sendBlockedCodeEmail(payload: BlockCodeEmailPayload): Promise<void> {
     const isResend = payload.isResend ?? false;
 
@@ -65,6 +70,11 @@ export class EmailService {
     });
   }
 
+  /**
+   * Envía el enlace para completar el cambio de contraseña.
+   *
+   * @param payload Usuario, correo y enlace de recuperación.
+   */
   async sendPasswordResetEmail(
     payload: PasswordResetEmailPayload,
   ): Promise<void> {
@@ -85,6 +95,12 @@ export class EmailService {
     });
   }
 
+  /**
+   * Renderiza una plantilla y delega el envío transaccional a Brevo.
+   *
+   * @param input Destinatario, asunto, plantilla y contexto del correo.
+   * @throws InternalServerErrorException Si la plantilla o el envío fallan.
+   */
   private async sendMail(input: {
     to: string;
     subject: string;
@@ -116,6 +132,11 @@ export class EmailService {
     }
   }
 
+  /**
+   * Obtiene la dirección configurada para soporte o respuesta.
+   *
+   * @returns Dirección de correo normalizada o cadena vacía.
+   */
   private readSupportEmail(): string {
     const supportFromEnv =
       readOptionalEnv('MAIL_SUPPORT') ?? readOptionalEnv('MAIL_FROM');
@@ -127,6 +148,12 @@ export class EmailService {
     return this.extractEmailAddress(supportFromEnv);
   }
 
+  /**
+   * Formatea una fecha ISO en la zona horaria argentina.
+   *
+   * @param value Fecha que se debe mostrar en el correo.
+   * @returns Fecha localizada o el valor original si no es válida.
+   */
   private formatArgentinaDateTime(value: string): string {
     const date = new Date(value);
 
@@ -151,19 +178,30 @@ export class EmailService {
     return `${getPart('day')}/${getPart('month')}/${getPart('year')} ${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
   }
 
+  /**
+   * Compila una plantilla Handlebars con su contexto.
+   *
+   * @param template Nombre de la plantilla disponible.
+   * @param context Datos utilizados para renderizar el mensaje.
+   * @returns Contenido HTML resultante.
+   */
   private renderTemplate(
     template: MailTemplateName,
     context: BlockCodeMailContext | PasswordResetMailContext,
   ): string {
     const templatePath = join(this.templateDir, `${template}.hbs`);
     const templateSource = readFileSync(templatePath, 'utf8');
-    const compiledTemplate = compile(templateSource, {
-      noEscape: true,
-    });
+    const compiledTemplate = compile(templateSource);
 
     return compiledTemplate(context);
   }
 
+  /**
+   * Extrae la dirección de una expresión de remitente con nombre opcional.
+   *
+   * @param value Dirección simple o con formato `Nombre <correo>`.
+   * @returns Dirección de correo sin nombre ni espacios.
+   */
   private extractEmailAddress(value: string): string {
     const regex = /<([^>]+)>/;
     const parsed = regex.exec(value);
