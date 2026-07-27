@@ -17,6 +17,13 @@ export interface AuthenticatedRequest extends Request {
 export class FirebaseAuthGuard implements CanActivate {
   constructor(private readonly firebaseAdminService: FirebaseAdminService) {}
 
+  /**
+   * Verifica el bearer token de Firebase y adjunta el usuario decodificado.
+   *
+   * @param context Contexto HTTP de la solicitud protegida.
+   * @returns `true` cuando el token es válido.
+   * @throws UnauthorizedException Si el token falta o no puede verificarse.
+   */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authorization = request.headers.authorization;

@@ -13,17 +13,26 @@ import { NotificationsService } from './notifications.service';
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
+  /**
+   * Obtiene la configuración pública necesaria para las notificaciones web.
+   */
   @Get('web/config')
   getWebConfig() {
     return this.notificationsService.getWebConfig();
   }
 
+  /**
+   * Consulta el estado de las notificaciones del usuario autenticado.
+   */
   @UseGuards(FirebaseAuthGuard)
   @Get('status')
   getStatus(@CurrentUser() user: DecodedIdToken) {
     return this.notificationsService.getStatus(user.uid);
   }
 
+  /**
+   * Registra el dispositivo actual para recibir notificaciones push.
+   */
   @UseGuards(FirebaseAuthGuard)
   @Post('subscribe')
   subscribe(
@@ -33,6 +42,9 @@ export class NotificationsController {
     return this.notificationsService.subscribeWebPush(user.uid, body);
   }
 
+  /**
+   * Elimina la suscripción push del dispositivo actual.
+   */
   @UseGuards(FirebaseAuthGuard)
   @Delete('subscribe')
   unsubscribe(
@@ -42,6 +54,9 @@ export class NotificationsController {
     return this.notificationsService.unsubscribeWebPush(user.uid, body.token);
   }
 
+  /**
+   * Procesa los recordatorios diarios de gastos mediante el cron autorizado.
+   */
   @UseGuards(CronAuthGuard)
   @Post('process-due-reminders')
   processDueReminders() {

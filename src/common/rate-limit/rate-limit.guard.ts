@@ -25,6 +25,13 @@ export class RateLimitGuard implements CanActivate {
     private readonly rateLimitStorage: RateLimitStorageService,
   ) {}
 
+  /**
+   * Aplica todas las reglas de rate limit configuradas para el endpoint.
+   *
+   * @param context Contexto HTTP con handler, clase y solicitud.
+   * @returns `true` cuando ninguna regla supera su límite.
+   * @throws HttpException Si una regla excede la cantidad permitida.
+   */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const rules = this.reflector.getAllAndOverride<RateLimitRule[]>(
       RATE_LIMIT_RULES_KEY,
@@ -69,6 +76,14 @@ export class RateLimitGuard implements CanActivate {
     return true;
   }
 
+  /**
+   * Construye la clave única del bucket para una regla y endpoint.
+   *
+   * @param context Contexto usado para identificar clase y handler.
+   * @param rule Regla de rate limit aplicada.
+   * @param key Identidad normalizada del consumidor.
+   * @returns Clave completa del bucket.
+   */
   private buildBucketKey(
     context: ExecutionContext,
     rule: RateLimitRule,
@@ -80,6 +95,13 @@ export class RateLimitGuard implements CanActivate {
     return `${className}:${handlerName}:${rule.limit}:${rule.windowMs}:${key}`;
   }
 
+  /**
+   * Resuelve y combina los valores configurados para identificar al consumidor.
+   *
+   * @param request Datos disponibles de la solicitud.
+   * @param rule Regla que define las fuentes de la clave.
+   * @returns Clave combinada o `null` si no hay valores utilizables.
+   */
   private buildKey(
     request: RateLimitRequestLike,
     rule: RateLimitRule,
@@ -95,6 +117,13 @@ export class RateLimitGuard implements CanActivate {
     return values.join('|');
   }
 
+  /**
+   * Obtiene de la solicitud el valor indicado por una fuente de rate limit.
+   *
+   * @param request Datos disponibles de la solicitud.
+   * @param source Fuente configurada en la regla.
+   * @returns Valor normalizado o cadena vacía.
+   */
   private resolveSourceValue(
     request: RateLimitRequestLike,
     source: RateLimitKeySource,
@@ -115,6 +144,12 @@ export class RateLimitGuard implements CanActivate {
     }
   }
 
+  /**
+   * Normaliza un valor desconocido como texto utilizable en una clave.
+   *
+   * @param value Valor que se debe convertir.
+   * @returns Texto sin espacios y en minúsculas o cadena vacía.
+   */
   private asString(value: unknown): string {
     return typeof value === 'string' ? value.trim().toLowerCase() : '';
   }

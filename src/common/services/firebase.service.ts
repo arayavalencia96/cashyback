@@ -25,30 +25,69 @@ export class FirebaseAdminService {
     this.messagingService = getMessaging(this.app);
   }
 
+  /**
+   * Expone el cliente de Firebase Authentication inicializado.
+   *
+   * @returns Cliente administrativo de autenticación.
+   */
   get auth(): Auth {
     return this.authService;
   }
 
+  /**
+   * Expone el cliente de Firestore inicializado.
+   *
+   * @returns Cliente administrativo de Firestore.
+   */
   get firestore(): Firestore {
     return this.firestoreService;
   }
 
+  /**
+   * Expone el cliente de Firebase Cloud Messaging inicializado.
+   *
+   * @returns Cliente administrativo de mensajería.
+   */
   get messaging(): Messaging {
     return this.messagingService;
   }
 
+  /**
+   * Obtiene el identificador de base de datos configurado.
+   *
+   * @returns Identificador configurado o `(default)`.
+   */
   get databaseId(): string {
     return readOptionalEnv('FIREBASE_DATABASE_ID') ?? '(default)';
   }
 
+  /**
+   * Obtiene un usuario de Firebase Authentication por identificador.
+   *
+   * @param uid Identificador del usuario.
+   * @returns Registro administrativo del usuario.
+   */
   async getUser(uid: string): Promise<UserRecord> {
     return this.authService.getUser(uid);
   }
 
+  /**
+   * Obtiene un usuario de Firebase Authentication por correo.
+   *
+   * @param email Correo asociado a la cuenta.
+   * @returns Registro administrativo del usuario.
+   */
   async getUserByEmail(email: string): Promise<UserRecord> {
     return this.authService.getUserByEmail(email);
   }
 
+  /**
+   * Activa o desactiva una cuenta de Firebase Authentication.
+   *
+   * @param uid Identificador del usuario.
+   * @param disabled Estado de desactivación que se debe aplicar.
+   * @returns Registro actualizado del usuario.
+   */
   async updateUserDisabled(
     uid: string,
     disabled: boolean,
@@ -56,18 +95,41 @@ export class FirebaseAdminService {
     return this.authService.updateUser(uid, { disabled });
   }
 
+  /**
+   * Actualiza la contraseña de un usuario mediante Firebase Admin.
+   *
+   * @param uid Identificador del usuario.
+   * @param password Nueva contraseña validada por el flujo llamador.
+   * @returns Registro actualizado del usuario.
+   */
   async updateUserPassword(uid: string, password: string): Promise<UserRecord> {
     return this.authService.updateUser(uid, { password });
   }
 
+  /**
+   * Revoca los refresh tokens emitidos previamente para un usuario.
+   *
+   * @param uid Identificador del usuario.
+   */
   async revokeRefreshTokens(uid: string): Promise<void> {
     await this.authService.revokeRefreshTokens(uid);
   }
 
+  /**
+   * Genera el enlace estándar de Firebase para restablecer una contraseña.
+   *
+   * @param email Correo de la cuenta.
+   * @returns Enlace de recuperación generado por Firebase.
+   */
   async generatePasswordResetLink(email: string): Promise<string> {
     return this.authService.generatePasswordResetLink(email);
   }
 
+  /**
+   * Inicializa Firebase Admin con la cuenta de servicio configurada.
+   *
+   * @returns Aplicación existente o nueva instancia inicializada.
+   */
   private initializeApp(): App {
     if (getApps().length > 0) {
       return getApp();
@@ -104,6 +166,13 @@ export class FirebaseAdminService {
     });
   }
 
+  /**
+   * Valida los campos obligatorios y la clave privada de la cuenta de servicio.
+   *
+   * @param serviceAccount Credenciales leídas desde el archivo configurado.
+   * @param credentialsPath Ruta utilizada para reportar errores de configuración.
+   * @throws Error Si faltan campos o la clave privada no tiene un formato válido.
+   */
   private validateServiceAccount(
     serviceAccount: Partial<ServiceAccount> & {
       type?: string;

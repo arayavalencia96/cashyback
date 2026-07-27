@@ -19,6 +19,9 @@ import { HistoryService } from './history.service';
 export class HistoryController {
   constructor(private readonly historyService: HistoryService) {}
 
+  /**
+   * Exporta como archivo CSV el historial mensual del usuario autenticado.
+   */
   @Get('export/csv/:year/:month')
   async exportCsv(
     @CurrentUser() user: DecodedIdToken,
