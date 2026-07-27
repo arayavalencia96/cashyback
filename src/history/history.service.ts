@@ -24,6 +24,16 @@ export class HistoryService {
 
   constructor(private readonly firebaseAdminService: FirebaseAdminService) {}
 
+  /**
+   * Genera el archivo CSV del historial de un usuario para un mes determinado.
+   *
+   * @param uid Identificador del usuario propietario del historial.
+   * @param year Año del período que se desea exportar.
+   * @param month Mes del período, entre 1 y 12.
+   * @returns El nombre del archivo y su contenido CSV.
+   * @throws BadRequestException Si el año o el mes no son válidos.
+   * @throws NotFoundException Si no existe historial para el período solicitado.
+   */
   async exportGroupCsv(
     uid: string,
     year: number,
@@ -46,6 +56,12 @@ export class HistoryService {
     return this.formatCsvOutput(rows, year, month);
   }
 
+  /**
+   * Construye todas las filas que conforman la exportación CSV de un período.
+   *
+   * @param group Grupo mensual con sus totales y movimientos.
+   * @returns Filas del resumen, gastos e inversiones.
+   */
   private buildCsvRows(group: HistoryGroup): string[][] {
     const rows: string[][] = this.buildSummaryRows(group);
     this.addFixedExpensesRows(rows, group);
@@ -54,6 +70,12 @@ export class HistoryService {
     return rows;
   }
 
+  /**
+   * Construye las filas con los totales generales del período.
+   *
+   * @param group Grupo mensual que se debe resumir.
+   * @returns Filas correspondientes al resumen mensual.
+   */
   private buildSummaryRows(group: HistoryGroup): string[][] {
     return [
       ['Resumen mensual'],
@@ -67,6 +89,12 @@ export class HistoryService {
     ];
   }
 
+  /**
+   * Agrega al CSV la cabecera y los movimientos de gastos fijos.
+   *
+   * @param rows Filas acumuladas de la exportación.
+   * @param group Grupo mensual que contiene los movimientos.
+   */
   private addFixedExpensesRows(rows: string[][], group: HistoryGroup): void {
     rows.push(
       [],
@@ -93,6 +121,12 @@ export class HistoryService {
     }
   }
 
+  /**
+   * Convierte un gasto fijo en una fila exportable.
+   *
+   * @param item Gasto fijo normalizado del historial.
+   * @returns Valores ordenados según las columnas de gastos fijos.
+   */
   private buildFixedExpenseRow(
     item: SummaryHistoryItem & { kind: 'fixed-expense' },
   ): string[] {
@@ -108,6 +142,12 @@ export class HistoryService {
     ];
   }
 
+  /**
+   * Agrega al CSV la cabecera y los movimientos de gastos variables.
+   *
+   * @param rows Filas acumuladas de la exportación.
+   * @param group Grupo mensual que contiene los movimientos.
+   */
   private addVariableExpensesRows(rows: string[][], group: HistoryGroup): void {
     rows.push(
       [],
@@ -125,6 +165,12 @@ export class HistoryService {
     }
   }
 
+  /**
+   * Convierte un gasto variable en una fila exportable.
+   *
+   * @param item Gasto variable normalizado del historial.
+   * @returns Valores ordenados según las columnas de gastos variables.
+   */
   private buildVariableExpenseRow(
     item: SummaryHistoryItem & { kind: 'variable-expense' },
   ): string[] {
@@ -138,6 +184,12 @@ export class HistoryService {
     ];
   }
 
+  /**
+   * Agrega al CSV la cabecera y los movimientos de inversiones.
+   *
+   * @param rows Filas acumuladas de la exportación.
+   * @param group Grupo mensual que contiene los movimientos.
+   */
   private addInvestmentsRows(rows: string[][], group: HistoryGroup): void {
     rows.push(
       [],
@@ -170,6 +222,12 @@ export class HistoryService {
     }
   }
 
+  /**
+   * Convierte una inversión en una fila exportable.
+   *
+   * @param item Inversión normalizada del historial.
+   * @returns Valores ordenados según las columnas de inversiones.
+   */
   private buildInvestmentRow(
     item: SummaryHistoryItem & { kind: 'investment' },
   ): string[] {
@@ -191,14 +249,34 @@ export class HistoryService {
     ];
   }
 
+  /**
+   * Convierte un número opcional a texto para su exportación.
+   *
+   * @param value Número que se desea serializar.
+   * @returns El número como texto o una cadena vacía si no está definido.
+   */
   private formatOptionalNumber(value: number | undefined): string {
     return value !== undefined ? String(value) : '';
   }
 
+  /**
+   * Convierte un valor de venta opcional a texto para su exportación.
+   *
+   * @param value Valor que puede ser numérico, nulo o no estar definido.
+   * @returns El valor como texto o una cadena vacía cuando no existe.
+   */
   private formatOptionalSaleValue(value: number | null | undefined): string {
     return value !== undefined && value !== null ? String(value) : '';
   }
 
+  /**
+   * Serializa las filas y genera los metadatos del archivo CSV.
+   *
+   * @param rows Filas que deben incluirse en el archivo.
+   * @param year Año del período exportado.
+   * @param month Mes del período exportado.
+   * @returns Nombre final del archivo y contenido CSV con BOM UTF-8.
+   */
   private formatCsvOutput(
     rows: string[][],
     year: number,
@@ -212,6 +290,12 @@ export class HistoryService {
     };
   }
 
+  /**
+   * Obtiene y agrupa el historial anterior al mes actual para un usuario.
+   *
+   * @param uid Identificador del usuario propietario de los movimientos.
+   * @returns Grupos mensuales ordenados desde el período más reciente.
+   */
   private async listHistoryGroups(uid: string): Promise<Array<HistoryGroup>> {
     const [fixedExpenses, variableExpenses, investments, budgets] =
       await Promise.all([
@@ -246,6 +330,11 @@ export class HistoryService {
     return this.sortAndFormatGroups(groups);
   }
 
+  /**
+   * Obtiene el inicio del mes actual en la zona horaria del servidor.
+   *
+   * @returns Fecha del primer día del mes actual a las 00:00.
+   */
   private getCurrentMonthStart(): Date {
     const currentMonthStart = new Date();
     currentMonthStart.setDate(1);
@@ -253,6 +342,15 @@ export class HistoryService {
     return currentMonthStart;
   }
 
+  /**
+   * Normaliza gastos e inversiones y conserva únicamente períodos cerrados.
+   *
+   * @param fixedExpenses Documentos de gastos fijos del usuario.
+   * @param variableExpenses Documentos de gastos variables del usuario.
+   * @param investments Documentos de inversiones del usuario.
+   * @param currentMonthStart Inicio del mes actual usado como límite.
+   * @returns Movimientos normalizados anteriores al mes actual.
+   */
   private buildHistoryItems(
     fixedExpenses: Array<{ id: string; data: FixedExpenseRecord }>,
     variableExpenses: Array<{ id: string; data: VariableExpenseRecord }>,
@@ -269,6 +367,12 @@ export class HistoryService {
     );
   }
 
+  /**
+   * Convierte un documento de gasto fijo al modelo común del historial.
+   *
+   * @param item Identificador y datos del documento de Firestore.
+   * @returns Movimiento normalizado como gasto fijo.
+   */
   private mapFixedExpense(item: {
     id: string;
     data: FixedExpenseRecord;
@@ -288,6 +392,12 @@ export class HistoryService {
     };
   }
 
+  /**
+   * Convierte un documento de gasto variable al modelo común del historial.
+   *
+   * @param item Identificador y datos del documento de Firestore.
+   * @returns Movimiento normalizado como gasto variable.
+   */
   private mapVariableExpense(item: {
     id: string;
     data: VariableExpenseRecord;
@@ -304,6 +414,12 @@ export class HistoryService {
     };
   }
 
+  /**
+   * Convierte un documento de inversión al modelo común del historial.
+   *
+   * @param item Identificador y datos del documento de Firestore.
+   * @returns Movimiento normalizado con datos de compra, venta o ahorro.
+   */
   private mapInvestment(item: {
     id: string;
     data: InvestmentRecord;
@@ -340,6 +456,12 @@ export class HistoryService {
     };
   }
 
+  /**
+   * Calcula el capital invertido de un movimiento.
+   *
+   * @param data Datos de la inversión o ahorro.
+   * @returns Monto redondeado invertido en el movimiento.
+   */
   private calculateInvestedAmount(data: InvestmentRecord): number {
     return data.transactionType === 'ahorro'
       ? this.roundMoney(data.amount ?? 0)
@@ -348,6 +470,13 @@ export class HistoryService {
         );
   }
 
+  /**
+   * Agrupa los movimientos por año y mes, aplicando el sueldo de cada período.
+   *
+   * @param items Movimientos normalizados del historial.
+   * @param budgetMap Sueldos indexados por clave mensual.
+   * @returns Grupos mensuales indexados por período.
+   */
   private groupHistoryItems(
     items: Array<SummaryHistoryItem>,
     budgetMap: Map<string, number>,
@@ -370,10 +499,25 @@ export class HistoryService {
     return groups;
   }
 
+  /**
+   * Convierte una fecha en la clave mensual utilizada por los presupuestos.
+   *
+   * @param date Fecha que se debe normalizar.
+   * @returns Clave con formato `YYYY-MM`.
+   */
   private formatMonthKey(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   }
 
+  /**
+   * Crea un grupo mensual a partir de su primer movimiento.
+   *
+   * @param item Primer movimiento del período.
+   * @param date Fecha utilizada para resolver el año y el mes.
+   * @param monthKey Clave mensual del presupuesto.
+   * @param budgetMap Sueldos indexados por período.
+   * @returns Grupo inicial con sus totales calculados.
+   */
   private createNewGroup(
     item: SummaryHistoryItem,
     date: Date,
@@ -401,6 +545,12 @@ export class HistoryService {
     };
   }
 
+  /**
+   * Distribuye el importe de un movimiento en el total correspondiente.
+   *
+   * @param item Movimiento cuyo importe se debe clasificar.
+   * @returns Totales parciales para gastos fijos, variables e inversiones.
+   */
   private calculateItemTotals(item: SummaryHistoryItem): {
     fixedExpensesTotal: number;
     variableExpensesTotal: number;
@@ -413,6 +563,14 @@ export class HistoryService {
     };
   }
 
+  /**
+   * Incorpora un movimiento a un grupo mensual existente.
+   *
+   * @param group Grupo mensual que se debe actualizar.
+   * @param item Movimiento que se debe incorporar.
+   * @param monthKey Clave mensual del presupuesto.
+   * @param budgetMap Sueldos indexados por período.
+   */
   private updateExistingGroup(
     group: HistoryGroup,
     item: SummaryHistoryItem,
@@ -423,6 +581,14 @@ export class HistoryService {
     this.updateGroupTotals(group, item, monthKey, budgetMap);
   }
 
+  /**
+   * Recalcula los totales, el sueldo ocupado y el saldo de un grupo.
+   *
+   * @param group Grupo mensual que se debe recalcular.
+   * @param item Movimiento incorporado al grupo.
+   * @param monthKey Clave mensual del presupuesto.
+   * @param budgetMap Sueldos indexados por período.
+   */
   private updateGroupTotals(
     group: HistoryGroup,
     item: SummaryHistoryItem,
@@ -456,6 +622,12 @@ export class HistoryService {
     group.remaining = this.roundMoney(group.salary - group.occupied);
   }
 
+  /**
+   * Ordena los grupos y sus movimientos desde los más recientes.
+   *
+   * @param groups Grupos mensuales indexados por período.
+   * @returns Grupos y movimientos ordenados de forma descendente.
+   */
   private sortAndFormatGroups(
     groups: Map<string, HistoryGroup>,
   ): Array<HistoryGroup> {
@@ -473,6 +645,13 @@ export class HistoryService {
       }));
   }
 
+  /**
+   * Consulta todos los documentos de una colección pertenecientes a un usuario.
+   *
+   * @param collectionPath Nombre de la colección de Firestore.
+   * @param userId Identificador del propietario de los documentos.
+   * @returns Documentos encontrados con su identificador y datos tipados.
+   */
   private async findAllByUserId<T extends { userId: string }>(
     collectionPath: string,
     userId: string,
@@ -488,6 +667,13 @@ export class HistoryService {
     }));
   }
 
+  /**
+   * Valida que el año y el mes correspondan a un período admitido.
+   *
+   * @param year Año que se debe validar.
+   * @param month Mes que se debe validar.
+   * @throws BadRequestException Si alguno de los valores está fuera de rango.
+   */
   private validateMonthAndYear(year: number, month: number): void {
     if (!Number.isInteger(year) || year < 2000 || year > 9999) {
       throw new BadRequestException('El anio solicitado no es valido.');
@@ -498,6 +684,12 @@ export class HistoryService {
     }
   }
 
+  /**
+   * Genera una etiqueta localizada para un grupo mensual.
+   *
+   * @param group Mes y año que se deben representar.
+   * @returns Nombre del mes y año en español con mayúscula inicial.
+   */
   private labelFor(group: Pick<HistoryGroup, 'month' | 'year'>): string {
     const label = new Intl.DateTimeFormat('es-AR', {
       month: 'long',
@@ -507,6 +699,12 @@ export class HistoryService {
     return label.charAt(0).toUpperCase() + label.slice(1);
   }
 
+  /**
+   * Convierte una fecha a un formato legible para el CSV.
+   *
+   * @param value Fecha ISO, objeto Date o valor opcional.
+   * @returns Fecha con formato `DD-MM-YYYY` o `N/A` si no es válida.
+   */
   private formatDisplayDate(value: string | Date | null | undefined): string {
     if (!value) {
       return 'N/A';
@@ -545,11 +743,23 @@ export class HistoryService {
     return 'N/A';
   }
 
+  /**
+   * Escapa un valor para evitar que comillas y separadores alteren el CSV.
+   *
+   * @param value Texto que se debe incluir en una celda.
+   * @returns Valor entre comillas con las comillas internas duplicadas.
+   */
   private escapeCsvValue(value: string): string {
     const text = value.replaceAll('"', '""');
     return `"${text}"`;
   }
 
+  /**
+   * Redondea un importe monetario a dos decimales.
+   *
+   * @param value Importe que se debe normalizar.
+   * @returns Importe redondeado a dos posiciones decimales.
+   */
   private roundMoney(value: number): number {
     return Math.round((value + Number.EPSILON) * 100) / 100;
   }

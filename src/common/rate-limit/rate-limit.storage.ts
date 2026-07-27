@@ -56,6 +56,14 @@ export class RateLimitStorageService implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Consume un intento del bucket y aplica Redis o memoria como respaldo.
+   *
+   * @param bucketKey Clave que identifica al consumidor y la regla.
+   * @param windowMs Duración de la ventana en milisegundos.
+   * @param limit Cantidad máxima de intentos permitidos.
+   * @returns Estado del consumo, contador, reintento y almacenamiento usado.
+   */
   async consume(
     bucketKey: string,
     windowMs: number,
@@ -77,6 +85,9 @@ export class RateLimitStorageService implements OnModuleDestroy {
     return this.consumeWithMemory(bucketKey, windowMs, limit);
   }
 
+  /**
+   * Libera el temporizador y cierra la conexión Redis al destruir el módulo.
+   */
   onModuleDestroy(): void {
     clearInterval(this.cleanupInterval);
 
@@ -85,6 +96,14 @@ export class RateLimitStorageService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Consume un intento mediante un contador atómico en Redis.
+   *
+   * @param bucketKey Clave del bucket.
+   * @param windowMs Duración de la ventana en milisegundos.
+   * @param limit Cantidad máxima permitida.
+   * @returns Resultado del rate limit respaldado por Redis.
+   */
   private async consumeWithRedis(
     bucketKey: string,
     windowMs: number,
@@ -127,6 +146,14 @@ export class RateLimitStorageService implements OnModuleDestroy {
     };
   }
 
+  /**
+   * Consume un intento mediante el almacenamiento local en memoria.
+   *
+   * @param bucketKey Clave del bucket.
+   * @param windowMs Duración de la ventana en milisegundos.
+   * @param limit Cantidad máxima permitida.
+   * @returns Resultado del rate limit respaldado por memoria.
+   */
   private consumeWithMemory(
     bucketKey: string,
     windowMs: number,
@@ -162,6 +189,9 @@ export class RateLimitStorageService implements OnModuleDestroy {
     };
   }
 
+  /**
+   * Elimina de memoria los buckets cuya ventana ya venció.
+   */
   private cleanupMemory(): void {
     const now = Date.now();
 
