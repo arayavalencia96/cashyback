@@ -95,7 +95,7 @@ describe('NotificationsService', () => {
     });
     await expect(
       service.subscribeWebPush('uid-1', {
-        token: 'token',
+        fid: 'fid',
         platform: 'web',
         deviceId: 'device',
       }),
@@ -108,13 +108,13 @@ describe('NotificationsService', () => {
   it.each([
     ['', 'device'],
     ['token', ''],
-  ])('rejects incomplete subscriptions', async (token, deviceId) => {
+  ])('rejects incomplete subscriptions', async (fid, deviceId) => {
     process.env.FIREBASE_WEB_PUSH_PUBLIC_KEY = 'vapid-key';
     const service = new NotificationsService({} as FirebaseAdminService);
 
     await expect(
       service.subscribeWebPush('uid-1', {
-        token,
+        fid,
         platform: 'web',
         deviceId,
       }),
@@ -169,7 +169,7 @@ describe('NotificationsService', () => {
     } as unknown as FirebaseAdminService);
 
     const response = await service.subscribeWebPush('uid-1', {
-      token: ' new-token ',
+      fid: ' new-fid ',
       platform: 'web',
       deviceId: ' device-1 ',
       userAgent: ' Browser ',
@@ -183,7 +183,7 @@ describe('NotificationsService', () => {
     expect(documentSet).toHaveBeenCalledWith(
       expect.objectContaining({
         uid: 'uid-1',
-        token: 'new-token',
+        fid: 'new-fid',
         deviceId: 'device-1',
         userAgent: 'Browser',
         createdAt: '2025-01-01',

@@ -1,5 +1,5 @@
 export class SubscribePushTokenDto {
-  token!: string;
+  fid!: string;
   platform!: 'web';
   deviceId!: string;
   userAgent?: string;

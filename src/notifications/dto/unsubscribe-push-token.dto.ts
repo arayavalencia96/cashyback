@@ -1,3 +1,3 @@
 export class UnsubscribePushTokenDto {
-  token!: string;
+  fid!: string;
 }

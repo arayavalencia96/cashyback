@@ -33,7 +33,7 @@ describe('NotificationsController', () => {
 
   it('delegates notification operations to the service', async () => {
     const subscription = {
-      token: 'fcm-token',
+      fid: 'firebase-installation-id',
       platform: 'web' as const,
       deviceId: 'device-1',
       userAgent: 'test-agent',
@@ -45,7 +45,7 @@ describe('NotificationsController', () => {
       result,
     );
     await expect(
-      controller.unsubscribe(user, { token: 'fcm-token' }),
+      controller.unsubscribe(user, { fid: 'firebase-installation-id' }),
     ).resolves.toBe(result);
     await expect(controller.processDueReminders()).resolves.toBe(result);
 
@@ -57,7 +57,7 @@ describe('NotificationsController', () => {
     );
     expect(notificationsServiceMock.unsubscribeWebPush).toHaveBeenCalledWith(
       'uid-1',
-      'fcm-token',
+      'firebase-installation-id',
     );
     expect(notificationsServiceMock.processDueReminders).toHaveBeenCalledWith();
   });

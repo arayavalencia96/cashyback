@@ -51,7 +51,7 @@ export class NotificationsController {
     @CurrentUser() user: DecodedIdToken,
     @Body() body: UnsubscribePushTokenDto,
   ) {
-    return this.notificationsService.unsubscribeWebPush(user.uid, body.token);
+    return this.notificationsService.unsubscribeWebPush(user.uid, body.fid);
   }
 
   /**
