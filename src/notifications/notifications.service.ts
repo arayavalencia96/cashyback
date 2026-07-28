@@ -96,7 +96,7 @@ export class NotificationsService {
   async subscribeWebPush(
     uid: string,
     input: {
-      token: string;
+      fid: string;
       platform: 'web';
       deviceId: string;
       userAgent?: string;
@@ -104,7 +104,7 @@ export class NotificationsService {
   ): Promise<ApiResponse<PushSubscribeResult>> {
     this.ensurePushConfigured();
 
-    if (!input.token?.trim() || !input.deviceId?.trim()) {
+    if (!input.fid?.trim() || !input.deviceId?.trim()) {
       throw new BadRequestException(
         buildErrorResponse(
           'Token push invalido',
@@ -115,7 +115,7 @@ export class NotificationsService {
     }
 
     const now = new Date().toISOString();
-    const documentId = this.hashToken(input.token);
+    const documentId = this.hashPushIdentifier(input.fid);
     const collection = this.firebaseAdminService.firestore.collection(
       PUSH_SUBSCRIPTIONS_COLLECTION,
     );
@@ -131,7 +131,7 @@ export class NotificationsService {
 
     const record: PushSubscriptionRecord = {
       uid,
-      token: input.token.trim(),
+      fid: input.fid.trim(),
       platform: 'web',
       deviceId: input.deviceId.trim(),
       userAgent: input.userAgent?.trim() || null,
@@ -166,9 +166,9 @@ export class NotificationsService {
    */
   async unsubscribeWebPush(
     uid: string,
-    token: string,
+    fid: string,
   ): Promise<ApiResponse<PushUnsubscribeResult>> {
-    if (!token?.trim()) {
+    if (!fid?.trim()) {
       throw new BadRequestException(
         buildErrorResponse(
           'Token push invalido',
@@ -178,7 +178,7 @@ export class NotificationsService {
       );
     }
 
-    const documentId = this.hashToken(token);
+    const documentId = this.hashPushIdentifier(fid);
     const document = this.firebaseAdminService.firestore
       .collection(PUSH_SUBSCRIPTIONS_COLLECTION)
       .doc(documentId);
@@ -524,12 +524,13 @@ export class NotificationsService {
     const duplicates = subscriptions.filter(
       (subscription) =>
         subscription.deviceId === deviceId &&
-        this.hashToken(subscription.token) !== currentDocumentId,
+        this.hashPushIdentifier(this.getPushIdentifier(subscription)) !==
+          currentDocumentId,
     );
 
     await Promise.all(
       duplicates.map((subscription) =>
-        this.deleteSubscription(subscription.token),
+        this.deleteSubscription(this.getPushIdentifier(subscription)),
       ),
     );
   }
@@ -738,7 +739,9 @@ export class NotificationsService {
   ): Promise<{ delivered: number; failed: number }> {
     const response = await this.firebaseAdminService.messaging.sendEach(
       subscriptions.map((subscription) => ({
-        token: subscription.token,
+        ...(subscription.fid
+          ? { fid: subscription.fid }
+          : { token: subscription.token ?? '' }),
         data: {
           notificationId: payload.notificationId,
           title: payload.title,
@@ -785,11 +788,14 @@ export class NotificationsService {
 
       if (result.success) {
         updates.push(
-          this.updateSubscriptionMetadata(subscription.token, {
-            lastSuccessAt: now,
-            lastFailureAt: undefined,
-            lastFailureCode: undefined,
-          }),
+          this.updateSubscriptionMetadata(
+            this.getPushIdentifier(subscription),
+            {
+              lastSuccessAt: now,
+              lastFailureAt: undefined,
+              lastFailureCode: undefined,
+            },
+          ),
         );
         return;
       }
@@ -797,7 +803,9 @@ export class NotificationsService {
       const errorCode = result.error?.code ?? 'messaging/unknown-error';
 
       if (INVALID_TOKEN_ERROR_CODES.has(errorCode)) {
-        updates.push(this.deleteSubscription(subscription.token));
+        updates.push(
+          this.deleteSubscription(this.getPushIdentifier(subscription)),
+        );
         return;
       }
 
@@ -805,7 +813,7 @@ export class NotificationsService {
         `Push send failure for uid=${subscription.uid}: ${errorCode}`,
       );
       updates.push(
-        this.updateSubscriptionMetadata(subscription.token, {
+        this.updateSubscriptionMetadata(this.getPushIdentifier(subscription), {
           lastFailureAt: now,
           lastFailureCode: errorCode,
         }),
@@ -825,7 +833,7 @@ export class NotificationsService {
     token: string,
     patch: Partial<PushSubscriptionRecord>,
   ): Promise<void> {
-    const documentId = this.hashToken(token);
+    const documentId = this.hashPushIdentifier(token);
 
     await this.firebaseAdminService.firestore
       .collection(PUSH_SUBSCRIPTIONS_COLLECTION)
@@ -845,7 +853,7 @@ export class NotificationsService {
    * @param token Token de registro que se debe eliminar.
    */
   private async deleteSubscription(token: string): Promise<void> {
-    const documentId = this.hashToken(token);
+    const documentId = this.hashPushIdentifier(token);
 
     await this.firebaseAdminService.firestore
       .collection(PUSH_SUBSCRIPTIONS_COLLECTION)
@@ -859,8 +867,12 @@ export class NotificationsService {
    * @param token Token de registro de Firebase.
    * @returns Hash SHA-256 del token.
    */
-  private hashToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
+  private hashPushIdentifier(identifier: string): string {
+    return createHash('sha256').update(identifier).digest('hex');
+  }
+
+  private getPushIdentifier(subscription: PushSubscriptionRecord): string {
+    return subscription.fid ?? subscription.token ?? '';
   }
 
   /**
