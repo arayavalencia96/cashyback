@@ -865,6 +865,85 @@ export class UserService {
   }
 
   /**
+   * Elimina todos los datos persistidos de un usuario y su cuenta de Authentication.
+   *
+   * @param uid Identificador del usuario autenticado.
+   * @returns Confirmación de eliminación completa.
+   */
+  async deleteAccount(uid: string): Promise<ApiResponse<{ deleted: true }>> {
+    const user = await this.findAuthUser(uid);
+    const email = user.email?.trim().toLowerCase();
+
+    const userCollections = [
+      'monthlyBudgets',
+      'fixedExpenses',
+      'variableExpenses',
+      'investments',
+      'expenses',
+    ];
+
+    await Promise.all(
+      userCollections.map((collectionName) =>
+        this.deleteDocumentsByField(collectionName, 'userId', uid),
+      ),
+    );
+
+    await Promise.all([
+      this.deleteDocumentsByField('user_push_subscriptions', 'uid', uid),
+      this.deleteDocumentsByField('due_reminder_notification_log', 'uid', uid),
+      this.deleteDocumentsByField(
+        PASSWORD_RECOVERY_SESSION_COLLECTION,
+        'uid',
+        uid,
+      ),
+      this.firebaseAdminService.firestore
+        .collection(BLOCK_CODE_COLLECTION)
+        .doc(uid)
+        .delete(),
+      ...(email
+        ? [
+            this.firebaseAdminService.firestore
+              .collection(LOGIN_ATTEMPTS_COLLECTION)
+              .doc(email)
+              .delete(),
+          ]
+        : []),
+      this.firebaseAdminService.firestore.collection('users').doc(uid).delete(),
+      this.firebaseAdminService.deleteUserFiles(uid),
+    ]);
+
+    await this.firebaseAdminService.deleteUser(uid);
+
+    return buildSuccessResponse(
+      { deleted: true },
+      'Cuenta eliminada',
+      'La cuenta y los datos asociados fueron eliminados correctamente.',
+      200,
+    );
+  }
+
+  private async deleteDocumentsByField(
+    collectionName: string,
+    field: string,
+    value: string,
+  ): Promise<void> {
+    const snapshot = await this.firebaseAdminService.firestore
+      .collection(collectionName)
+      .where(field, '==', value)
+      .get();
+
+    const batchSize = 400;
+
+    for (let index = 0; index < snapshot.docs.length; index += batchSize) {
+      const batch = this.firebaseAdminService.firestore.batch();
+      snapshot.docs
+        .slice(index, index + batchSize)
+        .forEach((document) => batch.delete(document.ref));
+      await batch.commit();
+    }
+  }
+
+  /**
    * Busca un usuario de Firebase Authentication por identificador.
    *
    * @param uid Identificador del usuario.

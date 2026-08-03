@@ -7,6 +7,7 @@ jest.mock('firebase-admin/app', () => ({
 jest.mock('firebase-admin/auth', () => ({ getAuth: jest.fn() }));
 jest.mock('firebase-admin/firestore', () => ({ getFirestore: jest.fn() }));
 jest.mock('firebase-admin/messaging', () => ({ getMessaging: jest.fn() }));
+jest.mock('firebase-admin/storage', () => ({ getStorage: jest.fn() }));
 jest.mock('node:fs', () => ({
   existsSync: jest.fn(),
   readFileSync: jest.fn(),
@@ -16,6 +17,7 @@ import { cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
+import { getStorage } from 'firebase-admin/storage';
 import { existsSync, readFileSync } from 'node:fs';
 import { FirebaseAdminService } from './firebase.service';
 
@@ -49,12 +51,14 @@ describe('FirebaseAdminService', () => {
     };
     const firestore = { collection: jest.fn() };
     const messaging = { send: jest.fn() };
+    const storage = { bucket: jest.fn() };
 
     jest.mocked(getApps).mockReturnValue([app] as never);
     jest.mocked(getApp).mockReturnValue(app as never);
     jest.mocked(getAuth).mockReturnValue(auth as never);
     jest.mocked(getFirestore).mockReturnValue(firestore as never);
     jest.mocked(getMessaging).mockReturnValue(messaging as never);
+    jest.mocked(getStorage).mockReturnValue(storage as never);
 
     const service = new FirebaseAdminService();
 
@@ -70,6 +74,7 @@ describe('FirebaseAdminService', () => {
     ).resolves.toBe('https://firebase.test/reset');
     expect(service.firestore).toBe(firestore);
     expect(service.messaging).toBe(messaging);
+    expect(service.storage).toBe(storage);
     expect(service.auth).toBe(auth);
   });
 
@@ -95,6 +100,10 @@ describe('FirebaseAdminService', () => {
       clientEmail: 'firebase@cashy.app',
       privateKey:
         '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----',
+    });
+    expect(initializeApp).toHaveBeenCalledWith({
+      credential: undefined,
+      storageBucket: 'cashy.firebasestorage.app',
     });
   });
 

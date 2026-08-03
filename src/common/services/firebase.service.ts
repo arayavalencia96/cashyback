@@ -7,6 +7,7 @@ import { App, cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth, type Auth, type UserRecord } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getMessaging, type Messaging } from 'firebase-admin/messaging';
+import { getStorage, type Storage } from 'firebase-admin/storage';
 import type { ServiceAccount } from 'firebase-admin';
 
 import { readOptionalEnv, readRequiredEnv } from '../env';
@@ -17,12 +18,14 @@ export class FirebaseAdminService {
   private readonly authService: Auth;
   private readonly firestoreService: Firestore;
   private readonly messagingService: Messaging;
+  private readonly storageService: Storage;
 
   constructor() {
     this.app = this.initializeApp();
     this.authService = getAuth(this.app);
     this.firestoreService = getFirestore(this.app);
     this.messagingService = getMessaging(this.app);
+    this.storageService = getStorage(this.app);
   }
 
   /**
@@ -53,6 +56,28 @@ export class FirebaseAdminService {
   }
 
   /**
+   * Expone el cliente administrativo de Storage.
+   *
+   * @returns Cliente administrativo de almacenamiento.
+   */
+  get storage(): Storage {
+    return this.storageService;
+  }
+
+  /**
+   * Elimina los archivos almacenados bajo la ruta privada de un usuario.
+   *
+   * @param uid Identificador del usuario propietario.
+   */
+  async deleteUserFiles(uid: string): Promise<void> {
+    const [files] = await this.storageService
+      .bucket()
+      .getFiles({ prefix: `users/${uid}/` });
+
+    await Promise.all(files.map((file) => file.delete()));
+  }
+
+  /**
    * Obtiene el identificador de base de datos configurado.
    *
    * @returns Identificador configurado o `(default)`.
@@ -79,6 +104,16 @@ export class FirebaseAdminService {
    */
   async getUserByEmail(email: string): Promise<UserRecord> {
     return this.authService.getUserByEmail(email);
+  }
+
+  /**
+   * Elimina una cuenta de Firebase Authentication.
+   *
+   * @param uid Identificador del usuario que se debe eliminar.
+   * @returns Promesa que finaliza cuando Firebase confirma la eliminación.
+   */
+  async deleteUser(uid: string): Promise<void> {
+    await this.authService.deleteUser(uid);
   }
 
   /**
@@ -163,6 +198,9 @@ export class FirebaseAdminService {
         clientEmail: serviceAccount.client_email,
         privateKey: serviceAccount.private_key,
       }),
+      storageBucket:
+        readOptionalEnv('FIREBASE_STORAGE_BUCKET') ??
+        `${serviceAccount.project_id}.firebasestorage.app`,
     });
   }
 
