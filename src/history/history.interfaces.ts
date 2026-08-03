@@ -6,6 +6,7 @@ export interface FixedExpenseRecord {
   description: string;
   expenseDate: string;
   amount: number;
+  amountArs?: number | null;
   category: string;
   notes: string;
   currency: CurrencyCode;
@@ -19,6 +20,7 @@ export interface VariableExpenseRecord {
   description: string;
   expenseDate: string;
   amount: number;
+  amountArs?: number | null;
   category: string;
   notes: string;
   currency: CurrencyCode;
@@ -54,6 +56,7 @@ export interface SummaryHistoryItem {
   id: string;
   title: string;
   amount: number;
+  budgetAmount?: number;
   category: string;
   notes: string;
   currency?: CurrencyCode;
