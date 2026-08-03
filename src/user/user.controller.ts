@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  Delete,
+  ForbiddenException,
   Param,
   Patch,
   Post,
@@ -8,6 +10,9 @@ import {
 } from '@nestjs/common';
 
 import { RateLimitGuard } from 'src/common/rate-limit/rate-limit.guard';
+import { CurrentUser } from 'src/common/auth/current-user.decorator';
+import { FirebaseAuthGuard } from 'src/common/auth/firebase-auth.guard';
+import type { DecodedIdToken } from 'firebase-admin/auth';
 
 import { UserService } from './user.service';
 
@@ -22,6 +27,26 @@ import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
+
+  /**
+   * Elimina la cuenta autenticada y todos sus datos asociados.
+   */
+  @RateLimit({
+    limit: 2,
+    windowMs: 60 * 60 * 1000,
+    keyBy: ['ip'],
+    message: 'Demasiadas solicitudes de eliminación',
+    description: 'Alcanzaste el límite de solicitudes de eliminación.',
+  })
+  @UseGuards(FirebaseAuthGuard)
+  @Delete('account')
+  deleteAccount(@CurrentUser() currentUser: DecodedIdToken | undefined) {
+    if (!currentUser?.uid) {
+      throw new ForbiddenException('No hay una cuenta autenticada.');
+    }
+
+    return this.userService.deleteAccount(currentUser.uid);
+  }
 
   /**
    * Solicita un código para verificar la identidad de un usuario bloqueado.
@@ -219,8 +244,19 @@ export class UserController {
     description:
       'Se alcanzó el máximo de actualizaciones desde esta IP. Intentá nuevamente más tarde.',
   })
+  @UseGuards(FirebaseAuthGuard)
   @Patch(':uid/status')
-  setUserStatus(@Param('uid') uid: string, @Body() body: SetUserStatusDto) {
+  setUserStatus(
+    @Param('uid') uid: string,
+    @Body() body: SetUserStatusDto,
+    @CurrentUser() currentUser: DecodedIdToken | undefined,
+  ) {
+    if (currentUser?.admin !== true) {
+      throw new ForbiddenException(
+        'Solo un administrador puede cambiar estados de cuenta.',
+      );
+    }
+
     return this.userService.setUserStatus(uid, body.disabled);
   }
 }

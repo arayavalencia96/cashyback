@@ -60,6 +60,7 @@ Creá un archivo `.env` en la raíz de `cashyback`:
 PORT=3000
 
 FIREBASE_CREDENTIALS_PATH=./configuration-firebase.json
+FIREBASE_STORAGE_BUCKET=cashy-cd3e6.firebasestorage.app
 FIREBASE_WEB_PUSH_PUBLIC_KEY=tu_clave_vapid_publica
 
 BREVO_API_KEY=tu_api_key_de_brevo
@@ -70,6 +71,7 @@ MAIL_FROM=Cashy <no-reply@tudominio.com>
 
 FRONTEND_URL=http://localhost:4200
 APP_BASE_URL=http://localhost:4200
+CORS_ALLOWED_ORIGINS=http://localhost:4200,https://cashy-cd3e6.web.app
 
 REDIS_URL=redis://default:<password>@<host>:6379
 
@@ -99,6 +101,7 @@ DUE_SOON_REMINDER_DAYS=3
 | `CRON_SECRET`                  | Sin valor                     | Bearer token requerido por el procesador de recordatorios.        |
 | `DUE_SOON_REMINDER_DAYS`       | `3`                           | Anticipación de recordatorios de vencimiento.                     |
 | `FIREBASE_DATABASE_ID`         | `(default)`                   | Identificador informativo de la base configurada.                 |
+| `FIREBASE_STORAGE_BUCKET`      | `<project-id>.firebasestorage.app` | Bucket utilizado para eliminar archivos privados de una cuenta. |
 
 El archivo de credenciales de Firebase no debe subirse al repositorio. `FIREBASE_CREDENTIALS_PATH` se resuelve desde el directorio de ejecución del backend.
 

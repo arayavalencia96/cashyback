@@ -1,6 +1,9 @@
 jest.mock('./user.service', () => ({
   UserService: class UserService {},
 }));
+jest.mock('src/common/auth/firebase-auth.guard', () => ({
+  FirebaseAuthGuard: class FirebaseAuthGuard {},
+}));
 
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
@@ -16,6 +19,7 @@ describe('UserController', () => {
     resendPasswordResetEmail: jest.fn().mockResolvedValue(result),
     updatePasswordManually: jest.fn().mockResolvedValue(result),
     setUserStatus: jest.fn().mockResolvedValue(result),
+    deleteAccount: jest.fn().mockResolvedValue(result),
   };
   const controller = new UserController(
     userServiceMock as unknown as UserService,
@@ -49,8 +53,18 @@ describe('UserController', () => {
       }),
     ).resolves.toBe(result);
     await expect(
-      controller.setUserStatus('uid-1', { disabled: true }),
+      controller.setUserStatus(
+        'uid-1',
+        { disabled: true },
+        {
+          uid: 'admin-1',
+          admin: true,
+        },
+      ),
     ).resolves.toBe(result);
+    await expect(controller.deleteAccount({ uid: 'uid-1' })).resolves.toBe(
+      result,
+    );
 
     expect(userServiceMock.requestBlockCode).toHaveBeenCalledWith('uid-1');
     expect(userServiceMock.verifyBlockCode).toHaveBeenCalledWith(
@@ -74,6 +88,7 @@ describe('UserController', () => {
       'Secure123',
     );
     expect(userServiceMock.setUserStatus).toHaveBeenCalledWith('uid-1', true);
+    expect(userServiceMock.deleteAccount).toHaveBeenCalledWith('uid-1');
   });
 
   it.each([
