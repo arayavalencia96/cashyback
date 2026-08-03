@@ -382,6 +382,7 @@ export class HistoryService {
       id: item.id,
       title: item.data.description,
       amount: item.data.amount,
+      budgetAmount: item.data.amountArs ?? item.data.amount,
       category: item.data.category,
       notes: item.data.notes,
       currency: item.data.currency,
@@ -407,6 +408,7 @@ export class HistoryService {
       id: item.id,
       title: item.data.description,
       amount: item.data.amount,
+      budgetAmount: item.data.amountArs ?? item.data.amount,
       category: item.data.category,
       notes: item.data.notes,
       currency: item.data.currency,
@@ -557,8 +559,12 @@ export class HistoryService {
     investmentsTotal: number;
   } {
     return {
-      fixedExpensesTotal: item.kind === 'fixed-expense' ? item.amount : 0,
-      variableExpensesTotal: item.kind === 'variable-expense' ? item.amount : 0,
+      fixedExpensesTotal:
+        item.kind === 'fixed-expense' ? (item.budgetAmount ?? item.amount) : 0,
+      variableExpensesTotal:
+        item.kind === 'variable-expense'
+          ? (item.budgetAmount ?? item.amount)
+          : 0,
       investmentsTotal: item.kind === 'investment' ? item.amount : 0,
     };
   }
@@ -598,12 +604,12 @@ export class HistoryService {
     switch (item.kind) {
       case 'fixed-expense':
         group.fixedExpensesTotal = this.roundMoney(
-          group.fixedExpensesTotal + item.amount,
+          group.fixedExpensesTotal + (item.budgetAmount ?? item.amount),
         );
         break;
       case 'variable-expense':
         group.variableExpensesTotal = this.roundMoney(
-          group.variableExpensesTotal + item.amount,
+          group.variableExpensesTotal + (item.budgetAmount ?? item.amount),
         );
         break;
       case 'investment':
