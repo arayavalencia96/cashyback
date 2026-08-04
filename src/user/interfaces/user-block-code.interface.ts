@@ -9,6 +9,7 @@ export interface UserBlockCodeRecord {
   requestedAtMs: number;
   expiresAt: string;
   expiresAtMs: number;
+  deleteAt: Date;
   status: BlockCodeStatus;
   disabled: boolean;
   name: string;
@@ -30,6 +31,7 @@ export interface PasswordRecoverySessionRecord {
   createdAtMs: number;
   expiresAt: string;
   expiresAtMs: number;
+  deleteAt: Date;
   updatedAt: string;
   usedAt?: string;
   passwordChangedAt?: string;
@@ -115,6 +117,7 @@ export interface UserLoginAttemptRecord {
   lastAttemptAt: string;
   updatedAt: string;
   blockedAt?: string;
+  deleteAt: Date;
 }
 
 export interface PasswordRecoverySessionSnapshot extends PasswordRecoverySessionRecord {

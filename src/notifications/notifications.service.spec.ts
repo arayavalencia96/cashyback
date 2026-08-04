@@ -88,6 +88,12 @@ describe('NotificationsService', () => {
   it('reports disabled configuration and rejects operations that require push', async () => {
     delete process.env.FIREBASE_WEB_PUSH_PUBLIC_KEY;
     const service = new NotificationsService({} as FirebaseAdminService);
+    const internal = service as unknown as {
+      cleanupExpiredTechnicalRecords: jest.Mock;
+    };
+    internal.cleanupExpiredTechnicalRecords = jest
+      .fn()
+      .mockResolvedValue(undefined);
 
     expect(service.getWebConfig().result).toEqual({
       enabled: false,
@@ -605,7 +611,11 @@ describe('NotificationsService', () => {
       getLoggedUsersForDate: jest.Mock;
       listActiveSubscriptionsByUserIds: jest.Mock;
       processUserDueReminder: jest.Mock;
+      cleanupExpiredTechnicalRecords: jest.Mock;
     };
+    internal.cleanupExpiredTechnicalRecords = jest
+      .fn()
+      .mockResolvedValue(undefined);
     internal.queryOverdueExpenses = jest.fn().mockResolvedValue([
       {
         id: 'expense-1',
@@ -654,5 +664,44 @@ describe('NotificationsService', () => {
       skippedAlreadySent: 1,
       deliveredCount: 1,
     });
+  });
+
+  it('removes only expired technical records during retention cleanup', async () => {
+    const expiredReference = { path: 'user_block_codes/expired' };
+    const activeReference = { path: 'user_block_codes/active' };
+    const batchDelete = jest.fn();
+    const batchCommit = jest.fn().mockResolvedValue(undefined);
+    const collection = jest.fn((collectionName: string) => ({
+      get: jest.fn().mockResolvedValue({
+        docs:
+          collectionName === 'user_block_codes'
+            ? [
+                {
+                  ref: expiredReference,
+                  data: () => ({ deleteAt: new Date(Date.now() - 1_000) }),
+                },
+                {
+                  ref: activeReference,
+                  data: () => ({ deleteAt: new Date(Date.now() + 60_000) }),
+                },
+              ]
+            : [],
+      }),
+    }));
+    const service = new NotificationsService({
+      firestore: {
+        collection,
+        batch: jest.fn(() => ({ delete: batchDelete, commit: batchCommit })),
+      },
+    } as unknown as FirebaseAdminService);
+    const internal = service as unknown as {
+      cleanupExpiredTechnicalRecords: () => Promise<void>;
+    };
+
+    await internal.cleanupExpiredTechnicalRecords();
+
+    expect(batchDelete).toHaveBeenCalledWith(expiredReference);
+    expect(batchDelete).not.toHaveBeenCalledWith(activeReference);
+    expect(batchCommit).toHaveBeenCalledTimes(1);
   });
 });

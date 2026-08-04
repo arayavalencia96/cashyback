@@ -120,6 +120,22 @@ npm run build
 npm run start:prod
 ```
 
+### Despliegue en Render
+
+El comando de compilación debe instalar también las dependencias de desarrollo, porque `@nestjs/cli` se utiliza durante el build y está declarada en `devDependencies`:
+
+```text
+npm ci --include=dev && npm run build
+```
+
+Como comando de inicio usar:
+
+```text
+npm run start:prod
+```
+
+Si el servicio tiene configurado `NPM_CONFIG_PRODUCTION=true`, eliminarlo o establecerlo en `false`; de lo contrario Render omitirá `@nestjs/cli` y aparecerá `nest: not found`.
+
 La aplicación escucha en `0.0.0.0`, confía en un proxy y admite CORS desde:
 
 - `http://localhost:4200`
@@ -354,6 +370,8 @@ Las fechas se presentan en `America/Argentina/Buenos_Aires`.
 | `variableExpenses`                | Gastos variables utilizados por el historial.                        |
 | `investments`                     | Movimientos de inversión utilizados por el historial.                |
 | `monthlyBudgets`                  | Sueldo mensual utilizado por el historial.                           |
+
+Los plazos y mecanismos de eliminación se documentan en [`docs/retencion-datos.md`](docs/retencion-datos.md). Las colecciones temporales utilizan el campo Firestore `deleteAt` y el cron diario elimina los registros vencidos sin requerir TTL administrado.
 
 ## Estructura
 

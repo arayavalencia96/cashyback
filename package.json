@@ -22,6 +22,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "retention:backfill": "ts-node src/scripts/backfill-retention.ts",
+    "retention:backfill:apply": "ts-node src/scripts/backfill-retention.ts --apply",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

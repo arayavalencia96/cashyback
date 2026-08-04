@@ -20,6 +20,8 @@ describe('UserController', () => {
     updatePasswordManually: jest.fn().mockResolvedValue(result),
     setUserStatus: jest.fn().mockResolvedValue(result),
     deleteAccount: jest.fn().mockResolvedValue(result),
+    recordLegalConsent: jest.fn().mockResolvedValue(result),
+    updateAnalyticsConsent: jest.fn().mockResolvedValue(result),
   };
   const controller = new UserController(
     userServiceMock as unknown as UserService,
@@ -65,6 +67,18 @@ describe('UserController', () => {
     await expect(controller.deleteAccount({ uid: 'uid-1' })).resolves.toBe(
       result,
     );
+    await expect(
+      controller.recordLegalConsent(
+        { analyticsConsent: 'not_decided' },
+        { uid: 'uid-1' },
+      ),
+    ).resolves.toBe(result);
+    await expect(
+      controller.updateAnalyticsConsent(
+        { analyticsConsent: 'accepted' },
+        { uid: 'uid-1' },
+      ),
+    ).resolves.toBe(result);
 
     expect(userServiceMock.requestBlockCode).toHaveBeenCalledWith('uid-1');
     expect(userServiceMock.verifyBlockCode).toHaveBeenCalledWith(
@@ -89,6 +103,14 @@ describe('UserController', () => {
     );
     expect(userServiceMock.setUserStatus).toHaveBeenCalledWith('uid-1', true);
     expect(userServiceMock.deleteAccount).toHaveBeenCalledWith('uid-1');
+    expect(userServiceMock.recordLegalConsent).toHaveBeenCalledWith(
+      'uid-1',
+      'not_decided',
+    );
+    expect(userServiceMock.updateAnalyticsConsent).toHaveBeenCalledWith(
+      'uid-1',
+      'accepted',
+    );
   });
 
   it.each([
