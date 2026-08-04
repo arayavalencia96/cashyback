@@ -25,9 +25,11 @@ describe('UserService', () => {
   const sendPasswordResetEmail = jest.fn();
   const documentGet = jest.fn();
   const documentSet = jest.fn();
+  const collectionAdd = jest.fn();
 
   const firestore = {
     collection: jest.fn(() => ({
+      add: collectionAdd,
       doc: jest.fn(() => ({
         get: documentGet,
         set: documentSet,
@@ -54,7 +56,55 @@ describe('UserService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     documentSet.mockResolvedValue(undefined);
+    collectionAdd.mockResolvedValue({ id: 'consent-1' });
     updateUserDisabled.mockResolvedValue(undefined);
+  });
+
+  it('records the current legal versions using the server timestamp', async () => {
+    documentGet.mockResolvedValue({ exists: true, data: () => ({}) });
+
+    const response = await service.recordLegalConsent('uid-1', 'rejected');
+
+    expect(response.ok).toBe(true);
+    expect(response.result).toMatchObject({
+      termsVersion: '2026-08-03',
+      privacyVersion: '2026-08-04-v2',
+      analyticsConsent: 'rejected',
+    });
+    expect(response.result.acceptedAt).toEqual(expect.any(String));
+    expect(documentSet).toHaveBeenCalledWith(
+      expect.objectContaining({ legalConsent: response.result }),
+      { merge: true },
+    );
+    expect(collectionAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uid: 'uid-1',
+        termsVersion: '2026-08-03',
+      }),
+    );
+  });
+
+  it('updates analytics consent without changing the accepted versions', async () => {
+    documentGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        legalConsent: {
+          termsVersion: '2026-08-03',
+          privacyVersion: '2026-08-03',
+          acceptedAt: '2026-08-03T00:00:00.000Z',
+          analyticsConsent: 'rejected',
+          analyticsConsentAt: '2026-08-03T00:00:00.000Z',
+        },
+      }),
+    });
+
+    const response = await service.updateAnalyticsConsent('uid-1', 'accepted');
+
+    expect(response.result).toMatchObject({
+      termsVersion: '2026-08-03',
+      acceptedAt: '2026-08-03T00:00:00.000Z',
+      analyticsConsent: 'accepted',
+    });
   });
 
   it('blocks the user and sends a verification code', async () => {

@@ -57,6 +57,7 @@ export interface DueReminderLogRecord {
   failedCount: number;
   dueDate: string | null;
   daysUntilDue: number | null;
+  deleteAt?: Date;
 }
 
 export interface PushConfigResult {

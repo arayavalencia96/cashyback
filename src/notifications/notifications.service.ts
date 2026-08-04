@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { createHash } from 'node:crypto';
+import { Timestamp } from 'firebase-admin/firestore';
 import type { BatchResponse } from 'firebase-admin/messaging';
 
 import {
@@ -33,6 +34,14 @@ const INVALID_TOKEN_ERROR_CODES = new Set([
 ]);
 const DEFAULT_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 const DEFAULT_DUE_SOON_REMINDER_DAYS = 3;
+const DUE_REMINDER_LOG_RETENTION_DAYS = 30;
+const RETENTION_DELETE_BATCH_SIZE = 400;
+const TECHNICAL_RETENTION_COLLECTIONS = [
+  'user_block_codes',
+  'user_password_recovery_sessions',
+  'user_login_attempts',
+  DUE_REMINDER_LOG_COLLECTION,
+] as const;
 
 function stripUndefinedFields<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(
@@ -209,6 +218,7 @@ export class NotificationsService {
    * @returns Métricas de usuarios procesados y notificaciones entregadas.
    */
   async processDueReminders(): Promise<ApiResponse<ProcessDueRemindersResult>> {
+    await this.cleanupExpiredTechnicalRecords();
     this.ensurePushConfigured();
     const todayKey = this.getTodayDateKey();
     const dueSoonReminderDays = this.getDueSoonReminderDays();
@@ -278,6 +288,58 @@ export class NotificationsService {
       'Se procesaron los recordatorios diarios de gastos vencidos y por vencer.',
       200,
     );
+  }
+
+  /** Elimina registros técnicos cuyo plazo de retención ya finalizó. */
+  private async cleanupExpiredTechnicalRecords(): Promise<void> {
+    const now = Date.now();
+    let deletedCount = 0;
+
+    for (const collectionName of TECHNICAL_RETENTION_COLLECTIONS) {
+      const snapshot = await this.firebaseAdminService.firestore
+        .collection(collectionName)
+        .get();
+      const expiredDocuments = snapshot.docs.filter((document) => {
+        const deleteAtDate = this.parseRetentionDate(
+          document.data()['deleteAt'],
+        );
+
+        return deleteAtDate !== null && deleteAtDate.getTime() <= now;
+      });
+
+      for (
+        let index = 0;
+        index < expiredDocuments.length;
+        index += RETENTION_DELETE_BATCH_SIZE
+      ) {
+        const batch = this.firebaseAdminService.firestore.batch();
+
+        for (const document of expiredDocuments.slice(
+          index,
+          index + RETENTION_DELETE_BATCH_SIZE,
+        )) {
+          batch.delete(document.ref);
+        }
+
+        await batch.commit();
+      }
+
+      deletedCount += expiredDocuments.length;
+    }
+
+    if (deletedCount > 0) {
+      this.logger.log(
+        `Retention cleanup removed ${deletedCount} expired technical records.`,
+      );
+    }
+  }
+
+  private parseRetentionDate(value: unknown): Date | null {
+    if (value instanceof Timestamp) {
+      return value.toDate();
+    }
+
+    return value instanceof Date ? value : null;
   }
 
   /**
@@ -714,11 +776,15 @@ export class NotificationsService {
     record: DueReminderLogRecord,
   ): Promise<void> {
     const documentId = `${record.dateKey}_${record.uid}`;
+    const sentAt = new Date(record.sentAt);
+    const deleteAt = new Date(
+      sentAt.getTime() + DUE_REMINDER_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+    );
 
     await this.firebaseAdminService.firestore
       .collection(DUE_REMINDER_LOG_COLLECTION)
       .doc(documentId)
-      .set(record);
+      .set({ ...record, deleteAt });
   }
 
   /**

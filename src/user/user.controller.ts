@@ -20,6 +20,7 @@ import { RateLimit } from 'src/common/rate-limit/rate-limit.decorator';
 
 import { CheckUserBlockStatusDto } from './dto/check-user-block-status.dto';
 import { ManualPasswordUpdateDto } from './dto/manual-password-update.dto';
+import { RecordLegalConsentDto } from './dto/record-legal-consent.dto';
 import { SetUserStatusDto } from './dto/set-user-status.dto';
 import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
 
@@ -27,6 +28,58 @@ import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
+
+  /**
+   * Registra desde el servidor la aceptación de las versiones legales vigentes.
+   */
+  @RateLimit({
+    limit: 6,
+    windowMs: 60 * 60 * 1000,
+    keyBy: ['ip'],
+    message: 'Demasiados registros de consentimiento',
+    description: 'Intentá registrar la aceptación nuevamente más tarde.',
+  })
+  @UseGuards(FirebaseAuthGuard)
+  @Post('legal-consent')
+  recordLegalConsent(
+    @Body() body: RecordLegalConsentDto,
+    @CurrentUser() currentUser: DecodedIdToken | undefined,
+  ) {
+    if (!currentUser?.uid) {
+      throw new ForbiddenException('No hay una cuenta autenticada.');
+    }
+
+    return this.userService.recordLegalConsent(
+      currentUser.uid,
+      body.analyticsConsent,
+    );
+  }
+
+  /**
+   * Actualiza la decisión opcional sobre Analytics para la cuenta autenticada.
+   */
+  @RateLimit({
+    limit: 12,
+    windowMs: 60 * 60 * 1000,
+    keyBy: ['ip'],
+    message: 'Demasiados cambios de consentimiento',
+    description: 'Intentá cambiar la preferencia nuevamente más tarde.',
+  })
+  @UseGuards(FirebaseAuthGuard)
+  @Patch('legal-consent/analytics')
+  updateAnalyticsConsent(
+    @Body() body: RecordLegalConsentDto,
+    @CurrentUser() currentUser: DecodedIdToken | undefined,
+  ) {
+    if (!currentUser?.uid) {
+      throw new ForbiddenException('No hay una cuenta autenticada.');
+    }
+
+    return this.userService.updateAnalyticsConsent(
+      currentUser.uid,
+      body.analyticsConsent,
+    );
+  }
 
   /**
    * Elimina la cuenta autenticada y todos sus datos asociados.

@@ -35,13 +35,22 @@ import {
   PasswordRecoverySessionSnapshot,
   CheckBlockStatusResult,
 } from './interfaces/user-block-code.interface';
+import {
+  AnalyticsConsentState,
+  CURRENT_PRIVACY_VERSION,
+  CURRENT_TERMS_VERSION,
+  LegalConsentRecord,
+} from './interfaces/legal-consent.interface';
 
 const BLOCK_CODE_TTL_MINUTES = 5;
 const PASSWORD_RECOVERY_SESSION_TTL_MINUTES = 10;
+const TEMPORARY_SECURITY_RECORD_RETENTION_HOURS = 24;
+const LOGIN_ATTEMPT_RETENTION_DAYS = 90;
 const MAX_LOGIN_ATTEMPTS = 3;
 const BLOCK_CODE_COLLECTION = 'user_block_codes';
 const LOGIN_ATTEMPTS_COLLECTION = 'user_login_attempts';
 const PASSWORD_RECOVERY_SESSION_COLLECTION = 'user_password_recovery_sessions';
+const LEGAL_CONSENT_COLLECTION = 'user_legal_consents';
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
 function stripUndefinedFields<T extends object>(value: T): Partial<T> {
@@ -56,6 +65,143 @@ export class UserService {
     private readonly firebaseAdminService: FirebaseAdminService,
     private readonly emailService: EmailService,
   ) {}
+
+  /**
+   * Registra la aceptación de los documentos legales vigentes usando la hora del servidor.
+   *
+   * @param uid Identificador del usuario autenticado.
+   * @param analyticsConsent Decisión actual sobre medición analítica opcional.
+   * @returns Versiones y fecha de aceptación persistidas en el perfil.
+   */
+  async recordLegalConsent(
+    uid: string,
+    analyticsConsent: AnalyticsConsentState,
+  ): Promise<ApiResponse<LegalConsentRecord>> {
+    const allowedAnalyticsStates: AnalyticsConsentState[] = [
+      'accepted',
+      'rejected',
+      'not_decided',
+    ];
+
+    if (!allowedAnalyticsStates.includes(analyticsConsent)) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Consentimiento analítico inválido',
+          'La decisión analítica recibida no es válida.',
+          400,
+        ),
+      );
+    }
+
+    const profileReference = this.firebaseAdminService.firestore
+      .collection('users')
+      .doc(uid);
+    const profileSnapshot = await profileReference.get();
+
+    if (!profileSnapshot.exists) {
+      throw new NotFoundException(
+        buildErrorResponse(
+          'Perfil inexistente',
+          'No se encontró el perfil asociado a la cuenta autenticada.',
+          404,
+        ),
+      );
+    }
+
+    const acceptedAt = new Date().toISOString();
+    const legalConsent: LegalConsentRecord = {
+      termsVersion: CURRENT_TERMS_VERSION,
+      privacyVersion: CURRENT_PRIVACY_VERSION,
+      acceptedAt,
+      analyticsConsent,
+      analyticsConsentAt:
+        analyticsConsent === 'not_decided' ? null : acceptedAt,
+    };
+
+    await Promise.all([
+      profileReference.set(
+        {
+          legalConsent,
+          updatedAt: acceptedAt,
+        },
+        { merge: true },
+      ),
+      this.firebaseAdminService.firestore
+        .collection(LEGAL_CONSENT_COLLECTION)
+        .add({
+          uid,
+          ...legalConsent,
+        }),
+    ]);
+
+    return buildSuccessResponse(
+      legalConsent,
+      'Aceptación registrada',
+      'Las versiones legales vigentes fueron aceptadas correctamente.',
+      200,
+    );
+  }
+
+  /**
+   * Actualiza únicamente la decisión analítica sin modificar la aceptación legal.
+   *
+   * @param uid Identificador del usuario autenticado.
+   * @param analyticsConsent Nueva decisión analítica.
+   * @returns Registro legal actualizado.
+   */
+  async updateAnalyticsConsent(
+    uid: string,
+    analyticsConsent: AnalyticsConsentState,
+  ): Promise<ApiResponse<LegalConsentRecord>> {
+    if (analyticsConsent !== 'accepted' && analyticsConsent !== 'rejected') {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Consentimiento analítico inválido',
+          'La decisión debe ser accepted o rejected.',
+          400,
+        ),
+      );
+    }
+
+    const profileReference = this.firebaseAdminService.firestore
+      .collection('users')
+      .doc(uid);
+    const profileSnapshot = await profileReference.get();
+    const currentConsent = profileSnapshot.data()?.['legalConsent'] as
+      LegalConsentRecord | undefined;
+
+    if (!profileSnapshot.exists || !currentConsent) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Aceptación legal pendiente',
+          'Primero debés aceptar los documentos legales vigentes.',
+          400,
+        ),
+      );
+    }
+
+    const analyticsConsentAt = new Date().toISOString();
+    const legalConsent: LegalConsentRecord = {
+      ...currentConsent,
+      analyticsConsent,
+      analyticsConsentAt,
+    };
+
+    await profileReference.set(
+      {
+        legalConsent,
+        updatedAt: analyticsConsentAt,
+      },
+      { merge: true },
+    );
+
+    return buildSuccessResponse(
+      legalConsent,
+      'Preferencia actualizada',
+      'La decisión sobre Analytics fue actualizada correctamente.',
+      200,
+    );
+  }
 
   /**
    * Genera y envía un código de verificación para un usuario bloqueado.
@@ -99,6 +245,10 @@ export class UserService {
       requestedAtMs: now.getTime(),
       expiresAt: expiresAt.toISOString(),
       expiresAtMs: expiresAt.getTime(),
+      deleteAt: new Date(
+        expiresAt.getTime() +
+          TEMPORARY_SECURITY_RECORD_RETENTION_HOURS * 60 * 60 * 1000,
+      ),
       status: 'pending',
       disabled: true,
       name: displayName,
@@ -701,7 +851,8 @@ export class UserService {
       );
     }
 
-    const now = new Date().toISOString();
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
     const record = await this.getLoginAttemptRecord(normalizedEmail);
     const attemptCount = (record?.attemptCount ?? 0) + 1;
     const blocked = attemptCount >= MAX_LOGIN_ATTEMPTS;
@@ -712,6 +863,9 @@ export class UserService {
       blocked,
       lastAttemptAt: now,
       updatedAt: now,
+      deleteAt: new Date(
+        nowDate.getTime() + LOGIN_ATTEMPT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+      ),
       ...(blocked ? { blockedAt: now } : {}),
     };
 
@@ -787,13 +941,17 @@ export class UserService {
       );
     }
 
+    const now = new Date();
     const clearedRecord: UserLoginAttemptRecord = {
       email: normalizedEmail,
       uid: user.uid,
       attemptCount: 0,
       blocked: false,
-      lastAttemptAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      lastAttemptAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      deleteAt: new Date(
+        now.getTime() + LOGIN_ATTEMPT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+      ),
     };
 
     await this.firebaseAdminService.firestore
@@ -896,6 +1054,7 @@ export class UserService {
         'uid',
         uid,
       ),
+      this.deleteDocumentsByField(LEGAL_CONSENT_COLLECTION, 'uid', uid),
       this.firebaseAdminService.firestore
         .collection(BLOCK_CODE_COLLECTION)
         .doc(uid)
@@ -1089,9 +1248,10 @@ export class UserService {
     const sessionId = this.generatePasswordRecoverySessionId();
     const sessionIdHash = this.hashPasswordRecoverySessionId(sessionId);
     const createdAt = new Date().toISOString();
-    const expiresAt = new Date(
+    const expiresAtDate = new Date(
       Date.now() + PASSWORD_RECOVERY_SESSION_TTL_MINUTES * 60 * 1000,
-    ).toISOString();
+    );
+    const expiresAt = expiresAtDate.toISOString();
     const record: PasswordRecoverySessionRecord = {
       uid,
       email,
@@ -1101,6 +1261,10 @@ export class UserService {
       createdAtMs: Date.now(),
       expiresAt,
       expiresAtMs: new Date(expiresAt).getTime(),
+      deleteAt: new Date(
+        expiresAtDate.getTime() +
+          TEMPORARY_SECURITY_RECORD_RETENTION_HOURS * 60 * 60 * 1000,
+      ),
       updatedAt: createdAt,
     };
 
