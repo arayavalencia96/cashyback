@@ -26,11 +26,14 @@ describe('UserService', () => {
   const documentGet = jest.fn();
   const documentSet = jest.fn();
   const collectionAdd = jest.fn();
+  const queryGet = jest.fn();
 
   const firestore = {
     collection: jest.fn(() => ({
       add: collectionAdd,
+      where: jest.fn(() => ({ get: queryGet })),
       doc: jest.fn(() => ({
+        id: 'request-1',
         get: documentGet,
         set: documentSet,
       })),
@@ -68,7 +71,7 @@ describe('UserService', () => {
     expect(response.ok).toBe(true);
     expect(response.result).toMatchObject({
       termsVersion: '2026-08-03',
-      privacyVersion: '2026-08-04-v2',
+      privacyVersion: '2026-08-04-v3',
       analyticsConsent: 'rejected',
     });
     expect(response.result.acceptedAt).toEqual(expect.any(String));
@@ -82,6 +85,30 @@ describe('UserService', () => {
         termsVersion: '2026-08-03',
       }),
     );
+  });
+
+  it('creates and lists privacy requests for the authenticated user', async () => {
+    getUser.mockResolvedValue({ uid: 'uid-1', email: 'USER@cashy.app' });
+
+    const created = await service.createPrivacyRequest(
+      'uid-1',
+      'access',
+      'Quiero una copia de todos mis datos.',
+    );
+
+    expect(created.result).toMatchObject({
+      id: 'request-1',
+      uid: 'uid-1',
+      email: 'user@cashy.app',
+      status: 'received',
+    });
+    expect(documentSet).toHaveBeenCalledWith(created.result);
+
+    queryGet.mockResolvedValue({
+      docs: [{ data: () => created.result }],
+    });
+    const listed = await service.listPrivacyRequests('uid-1');
+    expect(listed.result).toEqual([created.result]);
   });
 
   it('updates analytics consent without changing the accepted versions', async () => {
