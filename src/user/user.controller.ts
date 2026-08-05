@@ -24,6 +24,7 @@ import { CreatePrivacyRequestDto } from './dto/create-privacy-request.dto';
 import { ManualPasswordUpdateDto } from './dto/manual-password-update.dto';
 import { RecordLegalConsentDto } from './dto/record-legal-consent.dto';
 import { SetUserStatusDto } from './dto/set-user-status.dto';
+import { UpdateAnalyticsConsentDto } from './dto/update-analytics-consent.dto';
 import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
 
 @UseGuards(RateLimitGuard)
@@ -90,6 +91,7 @@ export class UserController {
     return this.userService.recordLegalConsent(
       currentUser.uid,
       body.analyticsConsent,
+      body.minimumAgeConfirmed,
     );
   }
 
@@ -106,7 +108,7 @@ export class UserController {
   @UseGuards(FirebaseAuthGuard)
   @Patch('legal-consent/analytics')
   updateAnalyticsConsent(
-    @Body() body: RecordLegalConsentDto,
+    @Body() body: UpdateAnalyticsConsentDto,
     @CurrentUser() currentUser: DecodedIdToken | undefined,
   ) {
     if (!currentUser?.uid) {

@@ -207,6 +207,11 @@ export class UserDataExportService {
         this.idColumn(),
         this.column('version_terminos_de_uso', 'termsVersion'),
         this.column('version_politica_de_privacidad', 'privacyVersion'),
+        this.column('edad_minima_requerida', 'minimumAge'),
+        this.mappedColumn('edad_minima_confirmada', 'minimumAgeConfirmed', {
+          true: 'sí',
+          false: 'no',
+        }),
         this.column('fecha_aceptacion', 'acceptedAt', 'date_time'),
         this.mappedColumn('consentimiento_analiticas', 'analyticsConsent', {
           accepted: 'aceptado',

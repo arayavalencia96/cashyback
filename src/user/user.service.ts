@@ -40,6 +40,7 @@ import {
   CURRENT_PRIVACY_VERSION,
   CURRENT_TERMS_VERSION,
   LegalConsentRecord,
+  MINIMUM_USER_AGE,
 } from './interfaces/legal-consent.interface';
 import {
   privacyRequestTypes,
@@ -172,11 +173,13 @@ export class UserService {
    *
    * @param uid Identificador del usuario autenticado.
    * @param analyticsConsent Decisión actual sobre medición analítica opcional.
+   * @param minimumAgeConfirmed Confirmación expresa de que la persona tiene la edad mínima.
    * @returns Versiones y fecha de aceptación persistidas en el perfil.
    */
   async recordLegalConsent(
     uid: string,
     analyticsConsent: AnalyticsConsentState,
+    minimumAgeConfirmed: boolean,
   ): Promise<ApiResponse<LegalConsentRecord>> {
     const allowedAnalyticsStates: AnalyticsConsentState[] = [
       'accepted',
@@ -189,6 +192,16 @@ export class UserService {
         buildErrorResponse(
           'Consentimiento analítico inválido',
           'La decisión analítica recibida no es válida.',
+          400,
+        ),
+      );
+    }
+
+    if (minimumAgeConfirmed !== true) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Edad mínima no confirmada',
+          `Para usar Cashy debés confirmar que tenés ${MINIMUM_USER_AGE} años o más.`,
           400,
         ),
       );
@@ -213,6 +226,8 @@ export class UserService {
     const legalConsent: LegalConsentRecord = {
       termsVersion: CURRENT_TERMS_VERSION,
       privacyVersion: CURRENT_PRIVACY_VERSION,
+      minimumAge: MINIMUM_USER_AGE,
+      minimumAgeConfirmed: true,
       acceptedAt,
       analyticsConsent,
       analyticsConsentAt:

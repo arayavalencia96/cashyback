@@ -66,12 +66,18 @@ describe('UserService', () => {
   it('records the current legal versions using the server timestamp', async () => {
     documentGet.mockResolvedValue({ exists: true, data: () => ({}) });
 
-    const response = await service.recordLegalConsent('uid-1', 'rejected');
+    const response = await service.recordLegalConsent(
+      'uid-1',
+      'rejected',
+      true,
+    );
 
     expect(response.ok).toBe(true);
     expect(response.result).toMatchObject({
-      termsVersion: '2026-08-03',
-      privacyVersion: '2026-08-04-v3',
+      termsVersion: '2026-08-05-v3',
+      privacyVersion: '2026-08-05-v5',
+      minimumAge: 18,
+      minimumAgeConfirmed: true,
       analyticsConsent: 'rejected',
     });
     expect(response.result.acceptedAt).toEqual(expect.any(String));
@@ -82,9 +88,15 @@ describe('UserService', () => {
     expect(collectionAdd).toHaveBeenCalledWith(
       expect.objectContaining({
         uid: 'uid-1',
-        termsVersion: '2026-08-03',
+        termsVersion: '2026-08-05-v3',
       }),
     );
+  });
+
+  it('rejects legal consent without the minimum-age confirmation', async () => {
+    await expect(
+      service.recordLegalConsent('uid-1', 'rejected', false),
+    ).rejects.toThrow('Edad mínima no confirmada');
   });
 
   it('creates and lists privacy requests for the authenticated user', async () => {

@@ -71,7 +71,7 @@ describe('UserController', () => {
     );
     await expect(
       controller.recordLegalConsent(
-        { analyticsConsent: 'not_decided' },
+        { analyticsConsent: 'not_decided', minimumAgeConfirmed: true },
         { uid: 'uid-1' },
       ),
     ).resolves.toBe(result);
@@ -117,6 +117,7 @@ describe('UserController', () => {
     expect(userServiceMock.recordLegalConsent).toHaveBeenCalledWith(
       'uid-1',
       'not_decided',
+      true,
     );
     expect(userServiceMock.updateAnalyticsConsent).toHaveBeenCalledWith(
       'uid-1',
