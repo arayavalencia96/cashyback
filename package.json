@@ -37,6 +37,7 @@
     "@nestjs/core": "11.1.27",
     "@nestjs/mapped-types": "2.1.1",
     "@nestjs/platform-express": "11.1.27",
+    "exceljs": "4.4.0",
     "firebase-admin": "14.1.0",
     "handlebars": "4.7.9",
     "ioredis": "5.11.1",

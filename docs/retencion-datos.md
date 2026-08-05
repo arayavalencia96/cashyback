@@ -59,6 +59,15 @@ El endpoint de eliminación borra los movimientos financieros, presupuestos, sus
 
 La eliminación en Cashy comienza inmediatamente. Algunos proveedores pueden mantener copias limitadas durante sus ciclos de respaldo o seguridad. Esas copias no deben utilizarse para finalidades ordinarias y deben desaparecer conforme a los plazos contractuales del proveedor.
 
+### Backups y logs después de la eliminación
+
+- Los datos activos controlados por Cashy dejan de estar disponibles para la persona usuaria y para la operación ordinaria una vez finalizado el endpoint de eliminación.
+- Una copia de seguridad existente puede conservar temporalmente datos eliminados hasta que sea sobrescrita por el ciclo automático del proveedor. No debe restaurarse para recuperar una cuenta eliminada ni reutilizarse con otra finalidad.
+- Si una restauración general por desastre reintroduce datos ya eliminados, se debe volver a ejecutar la supresión correspondiente antes de habilitar el uso ordinario del sistema.
+- Los logs técnicos deben minimizar datos personales. Los identificadores indispensables para seguridad o diagnóstico permanecen solo durante la retención configurada y no permiten reactivar la cuenta.
+- La evidencia aislada por una obligación legal, un reclamo o un incidente se conserva con acceso restringido, sin uso ordinario, durante el plazo estrictamente necesario y con el motivo documentado.
+- Los plazos exactos de cada proveedor deben registrarse en la matriz anterior y revisarse cuando cambie el plan, la región, el contrato o la configuración.
+
 ## Referencias
 
 - Ley 25.326, artículo 4: https://www.argentina.gob.ar/normativa/nacional/64790/texto

@@ -26,11 +26,14 @@ describe('UserService', () => {
   const documentGet = jest.fn();
   const documentSet = jest.fn();
   const collectionAdd = jest.fn();
+  const queryGet = jest.fn();
 
   const firestore = {
     collection: jest.fn(() => ({
       add: collectionAdd,
+      where: jest.fn(() => ({ get: queryGet })),
       doc: jest.fn(() => ({
+        id: 'request-1',
         get: documentGet,
         set: documentSet,
       })),
@@ -63,12 +66,18 @@ describe('UserService', () => {
   it('records the current legal versions using the server timestamp', async () => {
     documentGet.mockResolvedValue({ exists: true, data: () => ({}) });
 
-    const response = await service.recordLegalConsent('uid-1', 'rejected');
+    const response = await service.recordLegalConsent(
+      'uid-1',
+      'rejected',
+      true,
+    );
 
     expect(response.ok).toBe(true);
     expect(response.result).toMatchObject({
-      termsVersion: '2026-08-03',
-      privacyVersion: '2026-08-04-v2',
+      termsVersion: '2026-08-05-v3',
+      privacyVersion: '2026-08-05-v5',
+      minimumAge: 18,
+      minimumAgeConfirmed: true,
       analyticsConsent: 'rejected',
     });
     expect(response.result.acceptedAt).toEqual(expect.any(String));
@@ -79,9 +88,39 @@ describe('UserService', () => {
     expect(collectionAdd).toHaveBeenCalledWith(
       expect.objectContaining({
         uid: 'uid-1',
-        termsVersion: '2026-08-03',
+        termsVersion: '2026-08-05-v3',
       }),
     );
+  });
+
+  it('rejects legal consent without the minimum-age confirmation', async () => {
+    await expect(
+      service.recordLegalConsent('uid-1', 'rejected', false),
+    ).rejects.toThrow('Edad mínima no confirmada');
+  });
+
+  it('creates and lists privacy requests for the authenticated user', async () => {
+    getUser.mockResolvedValue({ uid: 'uid-1', email: 'USER@cashy.app' });
+
+    const created = await service.createPrivacyRequest(
+      'uid-1',
+      'access',
+      'Quiero una copia de todos mis datos.',
+    );
+
+    expect(created.result).toMatchObject({
+      id: 'request-1',
+      uid: 'uid-1',
+      email: 'user@cashy.app',
+      status: 'received',
+    });
+    expect(documentSet).toHaveBeenCalledWith(created.result);
+
+    queryGet.mockResolvedValue({
+      docs: [{ data: () => created.result }],
+    });
+    const listed = await service.listPrivacyRequests('uid-1');
+    expect(listed.result).toEqual([created.result]);
   });
 
   it('updates analytics consent without changing the accepted versions', async () => {

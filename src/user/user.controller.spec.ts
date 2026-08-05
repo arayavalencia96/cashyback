@@ -22,6 +22,8 @@ describe('UserController', () => {
     deleteAccount: jest.fn().mockResolvedValue(result),
     recordLegalConsent: jest.fn().mockResolvedValue(result),
     updateAnalyticsConsent: jest.fn().mockResolvedValue(result),
+    createPrivacyRequest: jest.fn().mockResolvedValue(result),
+    listPrivacyRequests: jest.fn().mockResolvedValue(result),
   };
   const controller = new UserController(
     userServiceMock as unknown as UserService,
@@ -69,7 +71,7 @@ describe('UserController', () => {
     );
     await expect(
       controller.recordLegalConsent(
-        { analyticsConsent: 'not_decided' },
+        { analyticsConsent: 'not_decided', minimumAgeConfirmed: true },
         { uid: 'uid-1' },
       ),
     ).resolves.toBe(result);
@@ -78,6 +80,15 @@ describe('UserController', () => {
         { analyticsConsent: 'accepted' },
         { uid: 'uid-1' },
       ),
+    ).resolves.toBe(result);
+    await expect(
+      controller.createPrivacyRequest(
+        { type: 'access', details: 'Quiero acceder a todos mis datos.' },
+        { uid: 'uid-1' },
+      ),
+    ).resolves.toBe(result);
+    await expect(
+      controller.listPrivacyRequests({ uid: 'uid-1' }),
     ).resolves.toBe(result);
 
     expect(userServiceMock.requestBlockCode).toHaveBeenCalledWith('uid-1');
@@ -106,11 +117,18 @@ describe('UserController', () => {
     expect(userServiceMock.recordLegalConsent).toHaveBeenCalledWith(
       'uid-1',
       'not_decided',
+      true,
     );
     expect(userServiceMock.updateAnalyticsConsent).toHaveBeenCalledWith(
       'uid-1',
       'accepted',
     );
+    expect(userServiceMock.createPrivacyRequest).toHaveBeenCalledWith(
+      'uid-1',
+      'access',
+      'Quiero acceder a todos mis datos.',
+    );
+    expect(userServiceMock.listPrivacyRequests).toHaveBeenCalledWith('uid-1');
   });
 
   it.each([

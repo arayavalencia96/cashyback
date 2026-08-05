@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   ForbiddenException,
+  Get,
   Param,
   Patch,
   Post,
@@ -19,15 +20,53 @@ import { UserService } from './user.service';
 import { RateLimit } from 'src/common/rate-limit/rate-limit.decorator';
 
 import { CheckUserBlockStatusDto } from './dto/check-user-block-status.dto';
+import { CreatePrivacyRequestDto } from './dto/create-privacy-request.dto';
 import { ManualPasswordUpdateDto } from './dto/manual-password-update.dto';
 import { RecordLegalConsentDto } from './dto/record-legal-consent.dto';
 import { SetUserStatusDto } from './dto/set-user-status.dto';
+import { UpdateAnalyticsConsentDto } from './dto/update-analytics-consent.dto';
 import { VerifyBlockCodeDto } from './dto/verify-block-code.dto';
 
 @UseGuards(RateLimitGuard)
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
+
+  /** Registra una solicitud de ejercicio de derechos de la cuenta autenticada. */
+  @RateLimit({
+    limit: 6,
+    windowMs: 24 * 60 * 60 * 1000,
+    keyBy: ['ip'],
+    message: 'Demasiadas solicitudes de privacidad',
+    description: 'Intentá registrar una nueva solicitud más tarde.',
+  })
+  @UseGuards(FirebaseAuthGuard)
+  @Post('privacy-requests')
+  createPrivacyRequest(
+    @Body() body: CreatePrivacyRequestDto,
+    @CurrentUser() currentUser: DecodedIdToken | undefined,
+  ) {
+    if (!currentUser?.uid) {
+      throw new ForbiddenException('No hay una cuenta autenticada.');
+    }
+
+    return this.userService.createPrivacyRequest(
+      currentUser.uid,
+      body.type,
+      body.details,
+    );
+  }
+
+  /** Lista las solicitudes de privacidad de la cuenta autenticada. */
+  @UseGuards(FirebaseAuthGuard)
+  @Get('privacy-requests')
+  listPrivacyRequests(@CurrentUser() currentUser: DecodedIdToken | undefined) {
+    if (!currentUser?.uid) {
+      throw new ForbiddenException('No hay una cuenta autenticada.');
+    }
+
+    return this.userService.listPrivacyRequests(currentUser.uid);
+  }
 
   /**
    * Registra desde el servidor la aceptación de las versiones legales vigentes.
@@ -52,6 +91,7 @@ export class UserController {
     return this.userService.recordLegalConsent(
       currentUser.uid,
       body.analyticsConsent,
+      body.minimumAgeConfirmed,
     );
   }
 
@@ -68,7 +108,7 @@ export class UserController {
   @UseGuards(FirebaseAuthGuard)
   @Patch('legal-consent/analytics')
   updateAnalyticsConsent(
-    @Body() body: RecordLegalConsentDto,
+    @Body() body: UpdateAnalyticsConsentDto,
     @CurrentUser() currentUser: DecodedIdToken | undefined,
   ) {
     if (!currentUser?.uid) {

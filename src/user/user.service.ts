@@ -40,7 +40,13 @@ import {
   CURRENT_PRIVACY_VERSION,
   CURRENT_TERMS_VERSION,
   LegalConsentRecord,
+  MINIMUM_USER_AGE,
 } from './interfaces/legal-consent.interface';
+import {
+  privacyRequestTypes,
+  PrivacyRequestRecord,
+  PrivacyRequestType,
+} from './interfaces/privacy-request.interface';
 
 const BLOCK_CODE_TTL_MINUTES = 5;
 const PASSWORD_RECOVERY_SESSION_TTL_MINUTES = 10;
@@ -51,6 +57,7 @@ const BLOCK_CODE_COLLECTION = 'user_block_codes';
 const LOGIN_ATTEMPTS_COLLECTION = 'user_login_attempts';
 const PASSWORD_RECOVERY_SESSION_COLLECTION = 'user_password_recovery_sessions';
 const LEGAL_CONSENT_COLLECTION = 'user_legal_consents';
+const PRIVACY_REQUEST_COLLECTION = 'privacy_requests';
 const ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
 
 function stripUndefinedFields<T extends object>(value: T): Partial<T> {
@@ -67,15 +74,112 @@ export class UserService {
   ) {}
 
   /**
+   * Registra una solicitud de privacidad verificando la identidad mediante la sesión autenticada.
+   *
+   * @param uid Identificador de la cuenta solicitante.
+   * @param type Derecho que la persona desea ejercer.
+   * @param details Alcance concreto informado por la persona.
+   * @returns Comprobante con identificador, estado inicial y fecha máxima de respuesta.
+   */
+  async createPrivacyRequest(
+    uid: string,
+    type: PrivacyRequestType,
+    details: string,
+  ): Promise<ApiResponse<PrivacyRequestRecord>> {
+    const normalizedDetails = typeof details === 'string' ? details.trim() : '';
+    if (
+      !privacyRequestTypes.includes(type) ||
+      normalizedDetails.length < 10 ||
+      normalizedDetails.length > 1500
+    ) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Solicitud inválida',
+          'Seleccioná un derecho válido y describí la solicitud con entre 10 y 1500 caracteres.',
+          400,
+        ),
+      );
+    }
+
+    const user = await this.findAuthUser(uid);
+    const email = user.email?.trim().toLowerCase();
+
+    if (!email) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Cuenta sin correo',
+          'La cuenta necesita un correo válido para tramitar la solicitud.',
+          400,
+        ),
+      );
+    }
+
+    const reference = this.firebaseAdminService.firestore
+      .collection(PRIVACY_REQUEST_COLLECTION)
+      .doc();
+    const createdAt = new Date();
+    const record: PrivacyRequestRecord = {
+      id: reference.id,
+      uid,
+      email,
+      type,
+      details: normalizedDetails,
+      status: 'received',
+      createdAt: createdAt.toISOString(),
+      updatedAt: createdAt.toISOString(),
+      responseDueAt: this.getPrivacyResponseDueAt(
+        type,
+        createdAt,
+      ).toISOString(),
+    };
+
+    await reference.set(record);
+
+    return buildSuccessResponse(
+      record,
+      'Solicitud recibida',
+      `Guardá el número ${record.id} como comprobante de tu solicitud.`,
+      201,
+    );
+  }
+
+  /**
+   * Obtiene las solicitudes de privacidad pertenecientes al usuario autenticado.
+   *
+   * @param uid Identificador de la cuenta.
+   * @returns Solicitudes ordenadas desde la más reciente.
+   */
+  async listPrivacyRequests(
+    uid: string,
+  ): Promise<ApiResponse<PrivacyRequestRecord[]>> {
+    const snapshot = await this.firebaseAdminService.firestore
+      .collection(PRIVACY_REQUEST_COLLECTION)
+      .where('uid', '==', uid)
+      .get();
+    const requests = snapshot.docs
+      .map((document) => document.data() as PrivacyRequestRecord)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+    return buildSuccessResponse(
+      requests,
+      'Solicitudes consultadas',
+      'Se obtuvieron tus solicitudes de privacidad.',
+      200,
+    );
+  }
+
+  /**
    * Registra la aceptación de los documentos legales vigentes usando la hora del servidor.
    *
    * @param uid Identificador del usuario autenticado.
    * @param analyticsConsent Decisión actual sobre medición analítica opcional.
+   * @param minimumAgeConfirmed Confirmación expresa de que la persona tiene la edad mínima.
    * @returns Versiones y fecha de aceptación persistidas en el perfil.
    */
   async recordLegalConsent(
     uid: string,
     analyticsConsent: AnalyticsConsentState,
+    minimumAgeConfirmed: boolean,
   ): Promise<ApiResponse<LegalConsentRecord>> {
     const allowedAnalyticsStates: AnalyticsConsentState[] = [
       'accepted',
@@ -88,6 +192,16 @@ export class UserService {
         buildErrorResponse(
           'Consentimiento analítico inválido',
           'La decisión analítica recibida no es válida.',
+          400,
+        ),
+      );
+    }
+
+    if (minimumAgeConfirmed !== true) {
+      throw new BadRequestException(
+        buildErrorResponse(
+          'Edad mínima no confirmada',
+          `Para usar Cashy debés confirmar que tenés ${MINIMUM_USER_AGE} años o más.`,
           400,
         ),
       );
@@ -112,6 +226,8 @@ export class UserService {
     const legalConsent: LegalConsentRecord = {
       termsVersion: CURRENT_TERMS_VERSION,
       privacyVersion: CURRENT_PRIVACY_VERSION,
+      minimumAge: MINIMUM_USER_AGE,
+      minimumAgeConfirmed: true,
       acceptedAt,
       analyticsConsent,
       analyticsConsentAt:
@@ -1055,6 +1171,7 @@ export class UserService {
         uid,
       ),
       this.deleteDocumentsByField(LEGAL_CONSENT_COLLECTION, 'uid', uid),
+      this.deleteDocumentsByField(PRIVACY_REQUEST_COLLECTION, 'uid', uid),
       this.firebaseAdminService.firestore
         .collection(BLOCK_CODE_COLLECTION)
         .doc(uid)
@@ -1100,6 +1217,28 @@ export class UserService {
         .forEach((document) => batch.delete(document.ref));
       await batch.commit();
     }
+  }
+
+  private getPrivacyResponseDueAt(
+    type: PrivacyRequestType,
+    createdAt: Date,
+  ): Date {
+    if (type !== 'rectification' && type !== 'deletion') {
+      const dueAt = new Date(createdAt);
+      dueAt.setUTCDate(dueAt.getUTCDate() + 10);
+      return dueAt;
+    }
+
+    const dueAt = new Date(createdAt);
+    let businessDays = 0;
+    while (businessDays < 5) {
+      dueAt.setUTCDate(dueAt.getUTCDate() + 1);
+      const day = dueAt.getUTCDay();
+      if (day !== 0 && day !== 6) {
+        businessDays += 1;
+      }
+    }
+    return dueAt;
   }
 
   /**

@@ -229,6 +229,9 @@ Base: `/user`
 | `POST`  | `/:uid/password-reset/resend` | Sin body                                       | Renueva y reenvía una sesión de recuperación.           |
 | `POST`  | `/password/manual`            | `{ "sessionId": "...", "newPassword": "..." }` | Cambia la contraseña y consume la sesión.               |
 | `PATCH` | `/:uid/status`                | `{ "disabled": true }`                         | Activa o desactiva la cuenta en Firebase.               |
+| `POST`  | `/privacy-requests`           | `{ "type": "access", "details": "..." }`   | Registra una solicitud de privacidad autenticada.       |
+| `GET`   | `/privacy-requests`           | Sin body                                       | Consulta los trámites de privacidad de la cuenta.       |
+| `GET`   | `/data-export`                | Sin body                                       | Descarga todos los datos propios en un libro Excel con hojas y columnas en español. |
 
 `POST /user/password/manual` mantiene compatibilidad con el campo heredado `token`, aunque el contrato actual utiliza `sessionId`.
 
@@ -370,8 +373,11 @@ Las fechas se presentan en `America/Argentina/Buenos_Aires`.
 | `variableExpenses`                | Gastos variables utilizados por el historial.                        |
 | `investments`                     | Movimientos de inversión utilizados por el historial.                |
 | `monthlyBudgets`                  | Sueldo mensual utilizado por el historial.                           |
+| `privacy_requests`                | Solicitudes de derechos, comprobantes, plazos y estado.              |
 
 Los plazos y mecanismos de eliminación se documentan en [`docs/retencion-datos.md`](docs/retencion-datos.md). Las colecciones temporales utilizan el campo Firestore `deleteAt` y el cron diario elimina los registros vencidos sin requerir TTL administrado.
+
+El tratamiento operativo de solicitudes de acceso, corrección, supresión, portabilidad y oposición se documenta en [`docs/procedimiento-derechos-privacidad.md`](docs/procedimiento-derechos-privacidad.md).
 
 ## Estructura
 

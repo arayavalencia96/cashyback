@@ -1,6 +1,5 @@
 import type { AnalyticsConsentState } from '../interfaces/legal-consent.interface';
 
-export class RecordLegalConsentDto {
+export class UpdateAnalyticsConsentDto {
   analyticsConsent!: AnalyticsConsentState;
-  minimumAgeConfirmed!: boolean;
 }
