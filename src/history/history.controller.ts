@@ -19,23 +19,23 @@ import { HistoryService } from './history.service';
 export class HistoryController {
   constructor(private readonly historyService: HistoryService) {}
 
-  /**
-   * Exporta como archivo CSV el historial mensual del usuario autenticado.
-   */
-  @Get('export/csv/:year/:month')
-  async exportCsv(
+  @Get('export/xlsx/:year/:month')
+  async exportXlsx(
     @CurrentUser() user: DecodedIdToken,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
     @Res() response: Response,
   ): Promise<void> {
-    const file = await this.historyService.exportGroupCsv(
+    const file = await this.historyService.exportGroupXlsx(
       user.uid,
       year,
       month,
     );
 
-    response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     response.setHeader(
       'Content-Disposition',
       `attachment; filename="${file.fileName}"`,
