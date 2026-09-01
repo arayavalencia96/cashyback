@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import ExcelJS from 'exceljs';
 
 import { FirebaseAdminService } from 'src/common/services/firebase.service';
 
@@ -14,6 +15,9 @@ import type {
   SummaryHistoryItem,
   VariableExpenseRecord,
 } from './history.interfaces';
+
+const ARS_MONEY_FORMAT = '"$" #,##0.00;[Red]-"$" #,##0.00';
+const USD_MONEY_FORMAT = '"USD" #,##0.00;[Red]-"USD" #,##0.00';
 
 @Injectable()
 export class HistoryService {
@@ -34,11 +38,11 @@ export class HistoryService {
    * @throws BadRequestException Si el año o el mes no son válidos.
    * @throws NotFoundException Si no existe historial para el período solicitado.
    */
-  async exportGroupCsv(
+  async exportGroupXlsx(
     uid: string,
     year: number,
     month: number,
-  ): Promise<{ fileName: string; content: string }> {
+  ): Promise<{ fileName: string; content: Buffer }> {
     this.validateMonthAndYear(year, month);
 
     const groups = await this.listHistoryGroups(uid);
@@ -52,8 +56,13 @@ export class HistoryService {
       );
     }
 
-    const rows = this.buildCsvRows(group);
-    return this.formatCsvOutput(rows, year, month);
+    const workbook = this.buildWorkbook(group);
+    const content = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    return {
+      fileName: `cashy-historial-${year}-${String(month).padStart(2, '0')}.xlsx`,
+      content,
+    };
   }
 
   /**
@@ -339,6 +348,429 @@ export class HistoryService {
     };
   }
 
+  private buildWorkbook(group: HistoryGroup): ExcelJS.Workbook {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Cashy';
+    workbook.lastModifiedBy = 'Cashy';
+    workbook.title = `Historial ${this.labelFor(group)}`;
+    workbook.subject = 'Resumen financiero mensual';
+    workbook.calcProperties.fullCalcOnLoad = true;
+
+    this.addSummarySheet(workbook, group);
+    this.addFixedExpensesSheet(workbook, group);
+    this.addVariableExpensesSheet(workbook, group);
+    this.addInvestmentsSheet(workbook, group);
+
+    return workbook;
+  }
+
+  private addSummarySheet(
+    workbook: ExcelJS.Workbook,
+    group: HistoryGroup,
+  ): void {
+    const worksheet = workbook.addWorksheet('Resumen', {
+      views: [{ state: 'frozen', ySplit: 5, showGridLines: false }],
+    });
+    const investmentCapital = this.investmentCapitalTotal(group);
+    const yields = this.financialYieldsTotal(group);
+    const liquid = this.roundMoney(
+      Math.max(0, group.savingsInvestmentTarget - investmentCapital),
+    );
+
+    worksheet.mergeCells('A1:D1');
+    worksheet.getCell('A1').value = `Historial - ${this.labelFor(group)}`;
+    worksheet.getCell('A1').font = {
+      bold: true,
+      size: 16,
+      color: { argb: 'FFFFFFFF' },
+    };
+    worksheet.getCell('A1').fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF0F172A' },
+    };
+    worksheet.getCell('A1').alignment = {
+      vertical: 'middle',
+      horizontal: 'center',
+    };
+    worksheet.getRow(1).height = 30;
+    worksheet.getCell('A3').value = 'Sueldo';
+    worksheet.getCell('B3').value = group.salary;
+    worksheet.getCell('B3').numFmt = ARS_MONEY_FORMAT;
+    ['Categoría', 'Establecido', 'Ocupado', 'Impacto en el balance'].forEach(
+      (value, index) => {
+        worksheet.getCell(5, index + 1).value = value;
+      },
+    );
+    const balanceRows = [
+      {
+        label: 'Gastos fijos',
+        target: group.fixedExpensesTarget,
+        occupied: group.fixedExpensesTotal,
+        formula: 'C6-B6',
+        impact: this.roundMoney(
+          group.fixedExpensesTotal - group.fixedExpensesTarget,
+        ),
+      },
+      {
+        label: 'Gastos variables',
+        target: group.variableExpensesTarget,
+        occupied: group.variableExpensesTotal,
+        formula: 'C7-B7',
+        impact: this.roundMoney(
+          group.variableExpensesTotal - group.variableExpensesTarget,
+        ),
+      },
+      {
+        label: 'Ahorro e inversión',
+        target: group.savingsInvestmentTarget,
+        occupied: investmentCapital,
+        formula: 'C8-B8',
+        impact: this.roundMoney(
+          investmentCapital - group.savingsInvestmentTarget,
+        ),
+      },
+      {
+        label: 'Rendimientos billeteras virtuales',
+        target: 0,
+        occupied: yields,
+        formula: '-C9',
+        impact: this.roundMoney(yields * -1),
+      },
+    ];
+    balanceRows.forEach(
+      ({ label, target, occupied, formula, impact }, index) => {
+        const row = index + 6;
+        worksheet.getCell(row, 1).value = label;
+        worksheet.getCell(row, 2).value = target;
+        worksheet.getCell(row, 3).value = occupied;
+        worksheet.getCell(row, 4).value = { formula, result: impact };
+      },
+    );
+    worksheet.getCell('A11').value = 'Líquido sin invertir';
+    worksheet.getCell('B11').value = liquid;
+    worksheet.getCell('A13').value = 'Ocupado neto';
+    worksheet.getCell('B13').value = group.occupied;
+    worksheet.getCell('A14').value =
+      group.remaining < 0 ? 'Gastado de más' : 'Sobrante';
+    worksheet.getCell('B14').value = {
+      formula: 'ABS(SUM(D6:D9))',
+      result: this.roundMoney(
+        Math.abs(balanceRows.reduce((total, row) => total + row.impact, 0)),
+      ),
+    };
+
+    this.styleSummarySheet(worksheet);
+  }
+
+  private addFixedExpensesSheet(
+    workbook: ExcelJS.Workbook,
+    group: HistoryGroup,
+  ): void {
+    const rows = group.items
+      .filter(
+        (item): item is SummaryHistoryItem & { kind: 'fixed-expense' } =>
+          item.kind === 'fixed-expense',
+      )
+      .map((item) => [
+        item.title,
+        item.category,
+        item.amount,
+        item.budgetAmount ?? item.amount,
+        item.currency ?? '',
+        this.excelDate(item.dueDate),
+        item.isPaid ? 'Pagado' : 'Pendiente',
+        this.excelDate(item.paidAt),
+        item.notes ?? '',
+      ]);
+    this.addDataSheet(
+      workbook,
+      'Gastos fijos',
+      [
+        'Descripción',
+        'Categoría',
+        'Monto planificado',
+        'Monto gastado',
+        'Moneda',
+        'Vencimiento',
+        'Estado',
+        'Fecha de pago',
+        'Notas',
+      ],
+      rows,
+      'fixedExpenses',
+    );
+  }
+
+  private addVariableExpensesSheet(
+    workbook: ExcelJS.Workbook,
+    group: HistoryGroup,
+  ): void {
+    const rows = group.items
+      .filter(
+        (item): item is SummaryHistoryItem & { kind: 'variable-expense' } =>
+          item.kind === 'variable-expense',
+      )
+      .map((item) => [
+        this.excelDate(item.date),
+        item.title,
+        item.category,
+        item.amount,
+        item.coveredBy ?? 0,
+        item.finalAmount ?? item.amount,
+        item.budgetAmount ?? item.finalAmount ?? item.amount,
+        item.currency ?? '',
+        item.notes ?? '',
+      ]);
+    this.addDataSheet(
+      workbook,
+      'Gastos variables',
+      [
+        'Fecha',
+        'Descripción',
+        'Categoría',
+        'Monto original',
+        'Promoción aplicada',
+        'Monto final',
+        'Impacto en presupuesto',
+        'Moneda',
+        'Notas',
+      ],
+      rows,
+      'variableExpenses',
+    );
+  }
+
+  private addInvestmentsSheet(
+    workbook: ExcelJS.Workbook,
+    group: HistoryGroup,
+  ): void {
+    const rows = group.items
+      .filter(
+        (item): item is SummaryHistoryItem & { kind: 'investment' } =>
+          item.kind === 'investment',
+      )
+      .map((item) => [
+        this.excelDate(item.transactionDate ?? item.date),
+        this.transactionTypeLabel(item.transactionType),
+        item.ticker ?? item.title,
+        this.displayInvestmentAmount(item),
+        item.currency ?? '',
+        item.platform ?? '',
+        this.excelDate(item.creditedDate),
+        item.quantity ?? null,
+        item.averagePurchasePrice ?? null,
+        item.saleAmount ?? null,
+        item.gainLossArs ?? null,
+        item.gainLossUsd ?? null,
+        item.notes ?? '',
+      ]);
+    this.addDataSheet(
+      workbook,
+      'Ahorro e inversiones',
+      [
+        'Fecha',
+        'Tipo',
+        'Activo',
+        'Monto',
+        'Moneda',
+        'Plataforma',
+        'Fecha de acreditación',
+        'Cantidad',
+        'Precio promedio',
+        'Monto venta',
+        'Ganancia ARS',
+        'Ganancia USD',
+        'Notas',
+      ],
+      rows,
+      'investments',
+    );
+  }
+
+  private addDataSheet(
+    workbook: ExcelJS.Workbook,
+    sheetName: string,
+    headers: string[],
+    rows: Array<Array<ExcelJS.CellValue>>,
+    tableName: string,
+  ): void {
+    const worksheet = workbook.addWorksheet(sheetName, {
+      views: [{ state: 'frozen', ySplit: 3, showGridLines: false }],
+      pageSetup: { fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    });
+    worksheet.mergeCells(1, 1, 1, headers.length);
+    const title = worksheet.getCell('A1');
+    title.value = sheetName;
+    title.font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
+    title.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF0F172A' },
+    };
+    title.alignment = { vertical: 'middle', horizontal: 'center' };
+    worksheet.getRow(1).height = 30;
+    worksheet.addTable({
+      name: tableName,
+      ref: 'A3',
+      headerRow: true,
+      totalsRow: false,
+      style: { theme: 'TableStyleMedium2', showRowStripes: true },
+      columns: headers.map((name) => ({ name, filterButton: true })),
+      rows,
+    });
+    this.styleDataSheet(worksheet, headers);
+  }
+
+  private styleSummarySheet(worksheet: ExcelJS.Worksheet): void {
+    worksheet.columns = [
+      { width: 34 },
+      { width: 18 },
+      { width: 18 },
+      { width: 24 },
+    ];
+    this.styleHeader(worksheet.getRow(5));
+    worksheet.getRow(3).alignment = {
+      vertical: 'middle',
+      horizontal: 'center',
+    };
+    for (let row = 6; row <= 9; row += 1) {
+      for (let column = 2; column <= 4; column += 1)
+        worksheet.getCell(row, column).numFmt = ARS_MONEY_FORMAT;
+    }
+    [6, 7, 8, 9, 11, 13, 14].forEach((row) => {
+      worksheet.getRow(row).alignment = {
+        vertical: 'middle',
+        horizontal: 'center',
+      };
+    });
+    [11, 13, 14].forEach((row) => {
+      worksheet.getCell(row, 1).font = { bold: true };
+      worksheet.getCell(row, 2).font = { bold: true };
+      worksheet.getCell(row, 2).numFmt = ARS_MONEY_FORMAT;
+    });
+    worksheet.addConditionalFormatting({
+      ref: 'D6:D9',
+      rules: [
+        {
+          type: 'cellIs',
+          operator: 'greaterThan',
+          formulae: ['0'],
+          priority: 1,
+          style: { font: { color: { argb: 'FFBE123C' } } },
+        },
+        {
+          type: 'cellIs',
+          operator: 'lessThan',
+          formulae: ['0'],
+          priority: 2,
+          style: { font: { color: { argb: 'FF15803D' } } },
+        },
+      ],
+    });
+  }
+
+  private styleDataSheet(
+    worksheet: ExcelJS.Worksheet,
+    headers: string[],
+  ): void {
+    this.styleHeader(worksheet.getRow(3));
+    headers.forEach((header, index) => {
+      const column = worksheet.getColumn(index + 1);
+      column.width = Math.min(34, Math.max(14, header.length + 3));
+      column.eachCell({ includeEmpty: false }, (cell, rowNumber) => {
+        if (rowNumber < 4) return;
+        cell.alignment = {
+          vertical: 'top',
+          horizontal: 'center',
+          wrapText: header === 'Notas',
+        };
+        if (
+          header.includes('Monto') ||
+          header.includes('Ganancia') ||
+          header === 'Precio promedio'
+        ) {
+          cell.numFmt = this.moneyFormatForColumn(
+            worksheet,
+            rowNumber,
+            header,
+            headers,
+          );
+        }
+        if (header.includes('Fecha') || header === 'Vencimiento')
+          cell.numFmt = 'dd/mm/yyyy';
+      });
+    });
+  }
+
+  private styleHeader(row: ExcelJS.Row): void {
+    row.height = 24;
+    row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    row.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF0284C7' },
+    };
+    row.alignment = { vertical: 'middle', horizontal: 'center' };
+  }
+
+  private moneyFormatForColumn(
+    worksheet: ExcelJS.Worksheet,
+    rowNumber: number,
+    header: string,
+    headers: string[],
+  ): string {
+    if (
+      header === 'Monto gastado' ||
+      header === 'Impacto en presupuesto' ||
+      header === 'Ganancia ARS'
+    ) {
+      return ARS_MONEY_FORMAT;
+    }
+
+    if (header === 'Ganancia USD') {
+      return USD_MONEY_FORMAT;
+    }
+
+    const currencyColumn = headers.indexOf('Moneda') + 1;
+    const currency = worksheet.getCell(rowNumber, currencyColumn).value;
+
+    return currency === 'USD' ? USD_MONEY_FORMAT : ARS_MONEY_FORMAT;
+  }
+
+  private investmentCapitalTotal(group: HistoryGroup): number {
+    return this.roundMoney(
+      group.items.reduce(
+        (total, item) =>
+          item.kind === 'investment' && item.transactionType !== 'rendimiento'
+            ? total + item.amount
+            : total,
+        0,
+      ),
+    );
+  }
+
+  private financialYieldsTotal(group: HistoryGroup): number {
+    return this.roundMoney(
+      group.items.reduce(
+        (total, item) =>
+          item.kind === 'investment' && item.transactionType === 'rendimiento'
+            ? total + Math.abs(item.amount)
+            : total,
+        0,
+      ),
+    );
+  }
+
+  private excelDate(value: string | Date | null | undefined): Date | null {
+    if (!value) return null;
+    const date =
+      typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T00:00:00`)
+        : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   /**
    * Obtiene y agrupa el historial anterior al mes actual para un usuario.
    *
@@ -572,16 +1004,17 @@ export class HistoryService {
    * @returns Monto redondeado invertido en el movimiento.
    */
   private calculateInvestedAmount(data: InvestmentRecord): number {
-    if (data.transactionType === 'ahorro') {
-      return this.roundMoney(data.amount ?? 0);
+    if (data.transactionType === 'venta') {
+      return 0;
     }
 
-    if (data.transactionType === 'rendimiento') {
-      return this.roundMoney((data.amount ?? 0) * -1);
-    }
+    const amountInArs =
+      data.currency === 'USD'
+        ? (data.amount ?? 0) * (data.dollarMepValue ?? 0)
+        : (data.amount ?? 0);
 
     return this.roundMoney(
-      (data.quantity ?? 0) * (data.averagePurchasePrice ?? 0),
+      data.transactionType === 'rendimiento' ? amountInArs * -1 : amountInArs,
     );
   }
 

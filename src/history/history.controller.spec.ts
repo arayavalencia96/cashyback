@@ -13,7 +13,7 @@ import { HistoryService } from './history.service';
 
 describe('HistoryController', () => {
   const historyServiceMock = {
-    exportGroupCsv: jest.fn(),
+    exportGroupXlsx: jest.fn(),
   };
   const controller = new HistoryController(
     historyServiceMock as unknown as HistoryService,
@@ -23,7 +23,7 @@ describe('HistoryController', () => {
     jest.clearAllMocks();
   });
 
-  it('exports the requested history group as a CSV response', async () => {
+  it('exports the requested history group as an Excel response', async () => {
     const user = { uid: 'uid-1' } as DecodedIdToken;
     const setHeader = jest.fn();
     const send = jest.fn();
@@ -33,27 +33,27 @@ describe('HistoryController', () => {
       status,
       send,
     } as unknown as Response;
-    historyServiceMock.exportGroupCsv.mockResolvedValue({
-      fileName: 'cashy-history.csv',
-      content: 'csv-content',
+    historyServiceMock.exportGroupXlsx.mockResolvedValue({
+      fileName: 'cashy-history.xlsx',
+      content: Buffer.from('xlsx-content'),
     });
 
-    await controller.exportCsv(user, 2026, 6, response);
+    await controller.exportXlsx(user, 2026, 6, response);
 
-    expect(historyServiceMock.exportGroupCsv).toHaveBeenCalledWith(
+    expect(historyServiceMock.exportGroupXlsx).toHaveBeenCalledWith(
       'uid-1',
       2026,
       6,
     );
     expect(setHeader).toHaveBeenCalledWith(
       'Content-Type',
-      'text/csv; charset=utf-8',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     expect(setHeader).toHaveBeenCalledWith(
       'Content-Disposition',
-      'attachment; filename="cashy-history.csv"',
+      'attachment; filename="cashy-history.xlsx"',
     );
     expect(status).toHaveBeenCalledWith(200);
-    expect(send).toHaveBeenCalledWith('csv-content');
+    expect(send).toHaveBeenCalledWith(Buffer.from('xlsx-content'));
   });
 });

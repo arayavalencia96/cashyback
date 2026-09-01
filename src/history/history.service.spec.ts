@@ -2,9 +2,16 @@ jest.mock('src/common/services/firebase.service', () => ({
   FirebaseAdminService: class FirebaseAdminService {},
 }));
 
+import ExcelJS from 'exceljs';
 import type { FirebaseAdminService } from 'src/common/services/firebase.service';
 
 import { HistoryService } from './history.service';
+
+const loadWorkbook = async (content: Buffer): Promise<ExcelJS.Workbook> => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(content);
+  return workbook;
+};
 
 describe('HistoryService', () => {
   const createService = (
@@ -92,13 +99,36 @@ describe('HistoryService', () => {
     } as unknown as FirebaseAdminService;
     const service = new HistoryService(firebaseAdminService);
 
-    const file = await service.exportGroupCsv('uid-1', 2025, 6);
+    const file = await service.exportGroupXlsx('uid-1', 2025, 6);
+    const workbook = await loadWorkbook(file.content);
 
-    expect(file.fileName).toBe('cashy-historial-2025-06.csv');
-    expect(file.content).toContain('Resumen mensual');
-    expect(file.content).toContain('Alquiler');
-    expect(file.content).toContain('Supermercado');
-    expect(file.content).toContain('SPY');
+    expect(file.fileName).toBe('cashy-historial-2025-06.xlsx');
+    expect(workbook.worksheets.map((worksheet) => worksheet.name)).toEqual([
+      'Resumen',
+      'Gastos fijos',
+      'Gastos variables',
+      'Ahorro e inversiones',
+    ]);
+    expect(workbook.getWorksheet('Resumen')?.getCell('A1').value).toContain(
+      'Junio',
+    );
+    expect(
+      workbook.getWorksheet('Resumen')?.getCell('A1').alignment,
+    ).toMatchObject({
+      horizontal: 'center',
+    });
+    expect(
+      workbook.getWorksheet('Gastos fijos')?.getCell('A4').alignment,
+    ).toMatchObject({ horizontal: 'center' });
+    expect(workbook.getWorksheet('Gastos fijos')?.getCell('A4').value).toBe(
+      'Alquiler',
+    );
+    expect(workbook.getWorksheet('Gastos variables')?.getCell('B4').value).toBe(
+      'Supermercado',
+    );
+    expect(
+      workbook.getWorksheet('Ahorro e inversiones')?.getCell('C4').value,
+    ).toBe('SPY');
     expect(collection).toHaveBeenCalledTimes(4);
   });
 
@@ -112,7 +142,7 @@ describe('HistoryService', () => {
   ])('rejects invalid periods', async (year, month) => {
     const service = createService({});
 
-    await expect(service.exportGroupCsv('uid-1', year, month)).rejects.toThrow(
+    await expect(service.exportGroupXlsx('uid-1', year, month)).rejects.toThrow(
       'no es valido',
     );
   });
@@ -120,7 +150,7 @@ describe('HistoryService', () => {
   it('rejects a valid month without historical movements', async () => {
     const service = createService({});
 
-    await expect(service.exportGroupCsv('uid-1', 2025, 6)).rejects.toThrow(
+    await expect(service.exportGroupXlsx('uid-1', 2025, 6)).rejects.toThrow(
       'No existe historial exportable',
     );
   });
@@ -200,16 +230,21 @@ describe('HistoryService', () => {
       monthlyBudgets: [],
     });
 
-    const file = await service.exportGroupCsv('uid-1', 2025, 6);
+    const file = await service.exportGroupXlsx('uid-1', 2025, 6);
+    const workbook = await loadWorkbook(file.content);
+    const fixedExpenses = workbook.getWorksheet('Gastos fijos');
+    const investments = workbook.getWorksheet('Ahorro e inversiones');
+    const savingsRow = investments
+      ?.getRows(4, investments.rowCount - 3)
+      .find((row) => row.getCell(2).value === 'Ahorro');
+    const yieldRow = investments
+      ?.getRows(4, investments.rowCount - 3)
+      .find((row) => row.getCell(2).value === 'Rendimiento');
 
-    expect(file.content).toContain('Seguro ""auto""');
-    expect(file.content).toContain('"No"');
-    expect(file.content).toContain('"Banco"');
-    expect(file.content).toContain('"Rendimiento"');
-    expect(file.content).toContain('"Mercado Pago"');
-    expect(file.content).toContain('"01-07-2025"');
-    expect(file.content).toContain('"Si"');
-    expect(file.content).not.toContain('Futuro');
+    expect(fixedExpenses?.getCell('A4').value).toBe('Seguro "auto"');
+    expect(fixedExpenses?.getCell('G4').value).toBe('Pendiente');
+    expect(savingsRow?.getCell(6).value).toBe('Banco');
+    expect(yieldRow?.getCell(6).value).toBe('Mercado Pago');
   });
 
   it('exports recalculated targets when fixed food overspends and variables are manually assigned', async () => {
@@ -265,7 +300,36 @@ describe('HistoryService', () => {
           }),
         },
       ],
-      investments: [],
+      investments: [
+        {
+          id: 'investment-savings',
+          data: () => ({
+            userId: 'uid-1',
+            ticker: 'ARS',
+            transactionType: 'ahorro',
+            transactionDate: '2026-08-15',
+            amount: 600_000,
+            platform: 'Mercado Pago',
+            averagePurchasePrice: 0,
+            quantity: 0,
+            currency: 'ARS',
+          }),
+        },
+        {
+          id: 'investment-yield',
+          data: () => ({
+            userId: 'uid-1',
+            ticker: 'Rendimiento',
+            transactionType: 'rendimiento',
+            transactionDate: '2026-08-31',
+            amount: 13_833.54,
+            platform: 'Mercado Pago',
+            averagePurchasePrice: 0,
+            quantity: 0,
+            currency: 'ARS',
+          }),
+        },
+      ],
       monthlyBudgets: [
         {
           id: 'budget-august',
@@ -281,14 +345,40 @@ describe('HistoryService', () => {
       ],
     });
 
-    const file = await service.exportGroupCsv('uid-1', 2026, 8);
+    const file = await service.exportGroupXlsx('uid-1', 2026, 8);
+    const workbook = await loadWorkbook(file.content);
+    const summary = workbook.getWorksheet('Resumen');
 
-    expect(file.content).toContain('"Objetivo gastos fijos";"1158891.01"');
-    expect(file.content).toContain('Fijos de m');
-    expect(file.content).toContain(';"55107.28"');
-    expect(file.content).toContain('"Objetivo variables";"620000"');
-    expect(file.content).toContain(';"60728.07"');
-    expect(file.content).toContain('"Objetivo ahorro e inversion";"600284.99"');
+    expect(summary?.getCell('B6').value).toBe(1_158_891.01);
+    expect(summary?.getCell('C6').value).toBe(1_213_998.29);
+    expect(summary?.getCell('B7').value).toBe(620_000);
+    expect(summary?.getCell('C7').value).toBe(680_728.07);
+    expect(summary?.getCell('B8').value).toBe(600_284.99);
+    expect(summary?.getCell('C8').value).toBe(600_000);
+    expect(summary?.getCell('C9').value).toBe(13_833.54);
+    expect(summary?.getCell('B11').value).toBe(284.99);
+    expect(summary?.getCell('B13').value).toBe(2_480_892.82);
+    expect(summary?.getCell('B13').numFmt).toContain('$');
+    expect(summary?.getCell('D6').value).toMatchObject({
+      formula: 'C6-B6',
+      result: 55_107.28,
+    });
+    expect(summary?.getCell('D7').value).toMatchObject({
+      formula: 'C7-B7',
+      result: 60_728.07,
+    });
+    expect(summary?.getCell('D8').value).toMatchObject({
+      formula: 'C8-B8',
+      result: -284.99,
+    });
+    expect(summary?.getCell('D9').value).toMatchObject({
+      formula: '-C9',
+      result: -13_833.54,
+    });
+    expect(summary?.getCell('B14').value).toMatchObject({
+      formula: 'ABS(SUM(D6:D9))',
+      result: 101_716.82,
+    });
   });
 
   it('formats every supported date representation', () => {
