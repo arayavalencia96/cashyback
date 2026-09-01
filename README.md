@@ -12,7 +12,7 @@ API de Cashy construida con NestJS. Centraliza los flujos de seguridad de usuari
 - Suscripción y desuscripción de dispositivos para Firebase Cloud Messaging.
 - Recordatorios de gastos vencidos y próximos a vencer.
 - Eliminación automática de tokens push inválidos.
-- Exportación CSV del historial mensual de gastos e inversiones.
+- Exportación Excel del historial mensual de gastos e inversiones.
 - Rate limiting con Redis y fallback local en memoria.
 - Respuestas REST con una estructura uniforme.
 
@@ -89,19 +89,19 @@ DUE_SOON_REMINDER_DAYS=3
 
 ### Variables opcionales
 
-| Variable                       | Valor predeterminado          | Uso                                                               |
-| ------------------------------ | ----------------------------- | ----------------------------------------------------------------- |
-| `PORT`                         | `3000`                        | Puerto HTTP.                                                      |
-| `FIREBASE_WEB_PUSH_PUBLIC_KEY` | Sin valor                     | Clave VAPID pública. Sin ella, el envío push queda deshabilitado. |
-| `BREVO_SENDER_NAME`            | Nombre de `MAIL_FROM`         | Nombre visible del remitente.                                     |
-| `MAIL_SUPPORT`                 | `MAIL_FROM`                   | Dirección de soporte y `reply-to`.                                |
-| `FRONTEND_URL`                 | `http://localhost:4200`       | Base del enlace de recuperación de contraseña.                    |
-| `APP_BASE_URL`                 | `https://cashy-cd3e6.web.app` | Base de la URL abierta desde una notificación push.               |
-| `REDIS_URL`                    | Memoria local                 | Almacenamiento compartido del rate limit.                         |
-| `CRON_SECRET`                  | Sin valor                     | Bearer token requerido por el procesador de recordatorios.        |
-| `DUE_SOON_REMINDER_DAYS`       | `3`                           | Anticipación de recordatorios de vencimiento.                     |
-| `FIREBASE_DATABASE_ID`         | `(default)`                   | Identificador informativo de la base configurada.                 |
-| `FIREBASE_STORAGE_BUCKET`      | `<project-id>.firebasestorage.app` | Bucket utilizado para eliminar archivos privados de una cuenta. |
+| Variable                       | Valor predeterminado               | Uso                                                               |
+| ------------------------------ | ---------------------------------- | ----------------------------------------------------------------- |
+| `PORT`                         | `3000`                             | Puerto HTTP.                                                      |
+| `FIREBASE_WEB_PUSH_PUBLIC_KEY` | Sin valor                          | Clave VAPID pública. Sin ella, el envío push queda deshabilitado. |
+| `BREVO_SENDER_NAME`            | Nombre de `MAIL_FROM`              | Nombre visible del remitente.                                     |
+| `MAIL_SUPPORT`                 | `MAIL_FROM`                        | Dirección de soporte y `reply-to`.                                |
+| `FRONTEND_URL`                 | `http://localhost:4200`            | Base del enlace de recuperación de contraseña.                    |
+| `APP_BASE_URL`                 | `https://cashy-cd3e6.web.app`      | Base de la URL abierta desde una notificación push.               |
+| `REDIS_URL`                    | Memoria local                      | Almacenamiento compartido del rate limit.                         |
+| `CRON_SECRET`                  | Sin valor                          | Bearer token requerido por el procesador de recordatorios.        |
+| `DUE_SOON_REMINDER_DAYS`       | `3`                                | Anticipación de recordatorios de vencimiento.                     |
+| `FIREBASE_DATABASE_ID`         | `(default)`                        | Identificador informativo de la base configurada.                 |
+| `FIREBASE_STORAGE_BUCKET`      | `<project-id>.firebasestorage.app` | Bucket utilizado para eliminar archivos privados de una cuenta.   |
 
 El archivo de credenciales de Firebase no debe subirse al repositorio. `FIREBASE_CREDENTIALS_PATH` se resuelve desde el directorio de ejecución del backend.
 
@@ -219,18 +219,18 @@ Ejemplo de respuesta:
 
 Base: `/user`
 
-| Método  | Ruta                          | Body                                           | Descripción                                             |
-| ------- | ----------------------------- | ---------------------------------------------- | ------------------------------------------------------- |
-| `POST`  | `/:uid/block-code`            | Sin body                                       | Genera y envía un código para una cuenta bloqueada.     |
-| `POST`  | `/:uid/block-code/verify`     | `{ "code": "123456" }`                         | Verifica el código y habilita la recuperación.          |
-| `POST`  | `/block-code/check`           | `{ "email": "usuario@correo.com" }`            | Consulta bloqueo, recuperación pendiente e intentos.    |
-| `POST`  | `/login-attempts/failure`     | `{ "email": "usuario@correo.com" }`            | Registra un intento fallido y bloquea al llegar a tres. |
-| `POST`  | `/login-attempts/reset`       | `{ "email": "usuario@correo.com" }`            | Reinicia los intentos después de un acceso válido.      |
-| `POST`  | `/:uid/password-reset/resend` | Sin body                                       | Renueva y reenvía una sesión de recuperación.           |
-| `POST`  | `/password/manual`            | `{ "sessionId": "...", "newPassword": "..." }` | Cambia la contraseña y consume la sesión.               |
-| `PATCH` | `/:uid/status`                | `{ "disabled": true }`                         | Activa o desactiva la cuenta en Firebase.               |
-| `POST`  | `/privacy-requests`           | `{ "type": "access", "details": "..." }`   | Registra una solicitud de privacidad autenticada.       |
-| `GET`   | `/privacy-requests`           | Sin body                                       | Consulta los trámites de privacidad de la cuenta.       |
+| Método  | Ruta                          | Body                                           | Descripción                                                                         |
+| ------- | ----------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `POST`  | `/:uid/block-code`            | Sin body                                       | Genera y envía un código para una cuenta bloqueada.                                 |
+| `POST`  | `/:uid/block-code/verify`     | `{ "code": "123456" }`                         | Verifica el código y habilita la recuperación.                                      |
+| `POST`  | `/block-code/check`           | `{ "email": "usuario@correo.com" }`            | Consulta bloqueo, recuperación pendiente e intentos.                                |
+| `POST`  | `/login-attempts/failure`     | `{ "email": "usuario@correo.com" }`            | Registra un intento fallido y bloquea al llegar a tres.                             |
+| `POST`  | `/login-attempts/reset`       | `{ "email": "usuario@correo.com" }`            | Reinicia los intentos después de un acceso válido.                                  |
+| `POST`  | `/:uid/password-reset/resend` | Sin body                                       | Renueva y reenvía una sesión de recuperación.                                       |
+| `POST`  | `/password/manual`            | `{ "sessionId": "...", "newPassword": "..." }` | Cambia la contraseña y consume la sesión.                                           |
+| `PATCH` | `/:uid/status`                | `{ "disabled": true }`                         | Activa o desactiva la cuenta en Firebase.                                           |
+| `POST`  | `/privacy-requests`           | `{ "type": "access", "details": "..." }`       | Registra una solicitud de privacidad autenticada.                                   |
+| `GET`   | `/privacy-requests`           | Sin body                                       | Consulta los trámites de privacidad de la cuenta.                                   |
 | `GET`   | `/data-export`                | Sin body                                       | Descarga todos los datos propios en un libro Excel con hojas y columnas en español. |
 
 `POST /user/password/manual` mantiene compatibilidad con el campo heredado `token`, aunque el contrato actual utiliza `sessionId`.
@@ -270,14 +270,14 @@ Body de desuscripción:
 
 Base: `/history`
 
-| Método | Ruta                       | Protección | Descripción                                     |
-| ------ | -------------------------- | ---------- | ----------------------------------------------- |
-| `GET`  | `/export/csv/:year/:month` | Firebase   | Descarga el historial cerrado de un mes en CSV. |
+| Método | Ruta                        | Protección | Descripción                                       |
+| ------ | --------------------------- | ---------- | ------------------------------------------------- |
+| `GET`  | `/export/xlsx/:year/:month` | Firebase   | Descarga el historial cerrado de un mes en Excel. |
 
-El CSV:
+El archivo Excel:
 
-- Incluye resumen mensual, gastos fijos, gastos variables e inversiones.
-- Usa `;` como separador y BOM UTF-8.
+- Incluye las hojas `Resumen`, `Gastos fijos`, `Gastos variables` y `Ahorro e inversiones`.
+- Usa tablas con filtros, fechas y montos tipados, encabezados con formato y saldos destacados.
 - Ordena los movimientos por fecha descendente.
 - Utiliza el sueldo de `monthlyBudgets` para calcular ocupado y restante.
 - Solo considera movimientos anteriores al mes actual.
@@ -388,7 +388,7 @@ src/
 │   ├── rate-limit/    # Reglas, guard y almacenamiento Redis/memoria
 │   ├── services/      # Firebase Admin, Brevo y correo
 │   └── templates/     # Plantillas Handlebars
-├── history/           # Exportación CSV del historial
+├── history/           # Exportación Excel del historial
 ├── notifications/     # Suscripciones push y recordatorios
 ├── user/              # Bloqueo, intentos y recuperación
 ├── health.controller.ts
