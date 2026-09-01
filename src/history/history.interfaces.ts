@@ -1,5 +1,7 @@
 export type CurrencyCode = 'ARS' | 'USD';
-export type InvestmentPlatform = 'IOL' | 'BingX' | 'BullMarket' | 'Nexo';
+export type InvestmentPlatform = string;
+export type InvestmentTransactionType =
+  'compra' | 'venta' | 'ahorro' | 'rendimiento';
 
 export interface FixedExpenseRecord {
   userId: string;
@@ -34,10 +36,11 @@ export interface VariableExpenseRecord {
 export interface InvestmentRecord {
   userId: string;
   ticker: string;
-  transactionType: 'compra' | 'venta' | 'ahorro';
+  transactionType: InvestmentTransactionType;
   transactionDate?: string;
   purchaseDate?: string;
   saleDate?: string | null;
+  creditedDate?: string | null;
   amount: number;
   gainLossArs?: number;
   gainLossUsd?: number;
@@ -56,6 +59,7 @@ export interface MonthlyBudgetRecord {
   salary: number;
   fixedExpensesTarget?: number | null;
   variableExpensesTarget?: number | null;
+  isVariableExpensesModified?: boolean;
 }
 
 export interface SummaryHistoryItem {
@@ -64,6 +68,7 @@ export interface SummaryHistoryItem {
   title: string;
   amount: number;
   budgetAmount?: number;
+  targetAmount?: number;
   category: string;
   notes: string;
   currency?: CurrencyCode;
@@ -83,9 +88,10 @@ export interface SummaryHistoryItem {
   paidAt?: string;
   gainLossArs?: number;
   gainLossUsd?: number;
-  transactionType?: 'compra' | 'venta' | 'ahorro';
+  transactionType?: InvestmentTransactionType;
   transactionDate?: string;
   saleDate?: string | null;
+  creditedDate?: string | null;
   saleDollarMepValue?: number | null;
   isCompleted?: boolean;
 }
@@ -95,7 +101,9 @@ export interface HistoryGroup {
   year: number;
   salary: number;
   fixedExpensesTarget: number;
+  fixedExpensesBaseTotal: number;
   variableExpensesTarget: number;
+  savingsInvestmentTarget: number;
   fixedExpensesTotal: number;
   variableExpensesTotal: number;
   fixedExpensesOverspend: number;

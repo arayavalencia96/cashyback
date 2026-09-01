@@ -181,6 +181,21 @@ describe('HistoryService', () => {
             gainLossUsd: 5,
           }),
         },
+        {
+          id: 'yield',
+          data: () => ({
+            userId: 'uid-1',
+            ticker: 'Rendimiento',
+            transactionType: 'rendimiento',
+            transactionDate: '2025-06-30',
+            creditedDate: '2025-07-01',
+            amount: 1000.5,
+            platform: 'Mercado Pago',
+            averagePurchasePrice: 0,
+            quantity: 0,
+            currency: 'ARS',
+          }),
+        },
       ],
       monthlyBudgets: [],
     });
@@ -190,8 +205,90 @@ describe('HistoryService', () => {
     expect(file.content).toContain('Seguro ""auto""');
     expect(file.content).toContain('"No"');
     expect(file.content).toContain('"Banco"');
+    expect(file.content).toContain('"Rendimiento"');
+    expect(file.content).toContain('"Mercado Pago"');
+    expect(file.content).toContain('"01-07-2025"');
     expect(file.content).toContain('"Si"');
     expect(file.content).not.toContain('Futuro');
+  });
+
+  it('exports recalculated targets when fixed food overspends and variables are manually assigned', async () => {
+    const service = createService({
+      fixedExpenses: [
+        {
+          id: 'fixed-services',
+          data: () => ({
+            userId: 'uid-1',
+            description: 'Servicios',
+            expenseDate: '2026-08-01',
+            amount: 858_891.01,
+            amountArs: 858_891.01,
+            category: 'Servicios',
+            notes: '',
+            currency: 'ARS',
+            dueDate: '2026-08-10',
+            isPaid: true,
+            paidAt: '2026-08-10',
+          }),
+        },
+        {
+          id: 'fixed-food',
+          data: () => ({
+            userId: 'uid-1',
+            description: 'Comida puntual',
+            expenseDate: '2026-08-01',
+            amount: 300_000,
+            amountArs: 300_000,
+            spentAmount: 355_107.28,
+            category: 'Comida',
+            notes: '',
+            currency: 'ARS',
+            dueDate: '2026-08-10',
+            isPaid: true,
+            paidAt: '2026-08-10',
+          }),
+        },
+      ],
+      variableExpenses: [
+        {
+          id: 'variable-overspent',
+          data: () => ({
+            userId: 'uid-1',
+            description: 'Variables agosto',
+            expenseDate: '2026-08-31',
+            amount: 680_728.07,
+            amountArs: 680_728.07,
+            budgetImpact: 680_728.07,
+            category: 'Supermercado',
+            notes: '',
+            currency: 'ARS',
+          }),
+        },
+      ],
+      investments: [],
+      monthlyBudgets: [
+        {
+          id: 'budget-august',
+          data: () => ({
+            userId: 'uid-1',
+            monthKey: '2026-08',
+            salary: 2_379_176,
+            fixedExpensesTarget: 1_189_588,
+            variableExpensesTarget: 620_000,
+            isVariableExpensesModified: true,
+          }),
+        },
+      ],
+    });
+
+    const file = await service.exportGroupCsv('uid-1', 2026, 8);
+
+    expect(file.content).toContain('"Objetivo gastos fijos";"1158891.01"');
+    expect(file.content).toContain('Fijos de m');
+    expect(file.content).toContain(';"55107.28"');
+    expect(file.content).toContain('"Objetivo variables";"620000"');
+    expect(file.content).toContain(';"60728.07"');
+    expect(file.content).toContain('"Objetivo ahorro e inversion";"600284.99"');
   });
 
   it('formats every supported date representation', () => {
