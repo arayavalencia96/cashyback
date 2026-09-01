@@ -88,6 +88,7 @@ export class HistoryService {
       ['Objetivo variables', String(group.variableExpensesTarget)],
       ['Variables de más', String(group.variableExpensesOverspend)],
       ['Total inversiones', String(group.investmentsTotal)],
+      ['Objetivo ahorro e inversion', String(group.savingsInvestmentTarget)],
       ['Ocupado', String(group.occupied)],
       [
         group.remaining < 0 ? 'Gastado de más' : 'Restante',
@@ -384,10 +385,23 @@ export class HistoryService {
    * @returns Fecha del primer día del mes actual a las 00:00.
    */
   private getCurrentMonthStart(): Date {
-    const currentMonthStart = new Date();
+    const currentMonthStart = this.getCurrentDate();
     currentMonthStart.setDate(1);
     currentMonthStart.setHours(0, 0, 0, 0);
     return currentMonthStart;
+  }
+
+  private getCurrentDate(): Date {
+    const configuredDate =
+      process.env.NODE_ENV === 'production'
+        ? undefined
+        : process.env.CASHY_DEV_CURRENT_DATE;
+
+    if (!configuredDate) {
+      return new Date();
+    }
+
+    return this.parseHistoryDate(configuredDate);
   }
 
   /**
@@ -411,7 +425,8 @@ export class HistoryService {
       ...investments.map((item) => this.mapInvestment(item)),
     ];
     return items.filter(
-      (item) => item.date && new Date(item.date) < currentMonthStart,
+      (item) =>
+        item.date && this.parseHistoryDate(item.date) < currentMonthStart,
     );
   }
 
@@ -430,6 +445,7 @@ export class HistoryService {
       id: item.id,
       title: item.data.description,
       amount: item.data.amount,
+      targetAmount: item.data.amountArs ?? item.data.amount,
       budgetAmount:
         item.data.category === 'Comida'
           ? (item.data.spentAmount ?? item.data.amountArs ?? item.data.amount)
@@ -583,7 +599,7 @@ export class HistoryService {
     const groups = new Map<string, HistoryGroup>();
 
     for (const item of items) {
-      const date = new Date(item.date);
+      const date = this.parseHistoryDate(item.date);
       const key = `${date.getFullYear()}-${date.getMonth() + 1}`;
       const monthKey = this.formatMonthKey(date);
       const currentGroup = groups.get(key);
@@ -608,6 +624,21 @@ export class HistoryService {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   }
 
+  private parseHistoryDate(value: string | Date): Date {
+    if (value instanceof Date) {
+      return value;
+    }
+
+    const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+
+    if (isoDateMatch) {
+      const [, year, month, day] = isoDateMatch;
+      return new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
+    }
+
+    return new Date(value);
+  }
+
   /**
    * Crea un grupo mensual a partir de su primer movimiento.
    *
@@ -624,6 +655,8 @@ export class HistoryService {
     budgetMap: Map<string, MonthlyBudgetRecord>,
   ): HistoryGroup {
     const totals = this.calculateItemTotals(item);
+    const fixedExpensesBaseTotal =
+      this.calculateFixedExpensesTargetAmount(item);
     const occupied = this.roundMoney(
       totals.fixedExpensesTotal +
         totals.variableExpensesTotal +
@@ -631,25 +664,30 @@ export class HistoryService {
     );
     const budget = budgetMap.get(monthKey);
     const salary = this.roundMoney(budget?.salary ?? 0);
-    const fixedExpensesTarget = this.resolveFixedExpensesTarget(budget, salary);
-    const variableExpensesTarget = this.resolveVariableExpensesTarget(
+    const targets = this.resolveHistoryTargets(
       budget,
       salary,
+      fixedExpensesBaseTotal,
     );
 
     return {
       month: date.getMonth() + 1,
       year: date.getFullYear(),
       salary,
-      fixedExpensesTarget,
-      variableExpensesTarget,
+      fixedExpensesTarget: targets.fixedExpensesTarget,
+      fixedExpensesBaseTotal,
+      variableExpensesTarget: targets.variableExpensesTarget,
+      savingsInvestmentTarget: targets.savingsInvestmentTarget,
       fixedExpensesTotal: totals.fixedExpensesTotal,
       variableExpensesTotal: totals.variableExpensesTotal,
       fixedExpensesOverspend: this.roundMoney(
-        Math.max(0, totals.fixedExpensesTotal - fixedExpensesTarget),
+        Math.max(0, totals.fixedExpensesTotal - targets.fixedExpensesTarget),
       ),
       variableExpensesOverspend: this.roundMoney(
-        Math.max(0, totals.variableExpensesTotal - variableExpensesTarget),
+        Math.max(
+          0,
+          totals.variableExpensesTotal - targets.variableExpensesTarget,
+        ),
       ),
       investmentsTotal: totals.investmentsTotal,
       occupied,
@@ -678,6 +716,12 @@ export class HistoryService {
           : 0,
       investmentsTotal: item.kind === 'investment' ? item.amount : 0,
     };
+  }
+
+  private calculateFixedExpensesTargetAmount(item: SummaryHistoryItem): number {
+    return item.kind === 'fixed-expense'
+      ? this.roundMoney(item.targetAmount ?? item.amount)
+      : 0;
   }
 
   /**
@@ -717,6 +761,10 @@ export class HistoryService {
         group.fixedExpensesTotal = this.roundMoney(
           group.fixedExpensesTotal + (item.budgetAmount ?? item.amount),
         );
+        group.fixedExpensesBaseTotal = this.roundMoney(
+          group.fixedExpensesBaseTotal +
+            this.calculateFixedExpensesTargetAmount(item),
+        );
         break;
       case 'variable-expense':
         group.variableExpensesTotal = this.roundMoney(
@@ -737,14 +785,14 @@ export class HistoryService {
     );
     const budget = budgetMap.get(monthKey);
     group.salary = this.roundMoney(budget?.salary ?? group.salary);
-    group.fixedExpensesTarget = this.resolveFixedExpensesTarget(
+    const targets = this.resolveHistoryTargets(
       budget,
       group.salary,
+      group.fixedExpensesBaseTotal,
     );
-    group.variableExpensesTarget = this.resolveVariableExpensesTarget(
-      budget,
-      group.salary,
-    );
+    group.fixedExpensesTarget = targets.fixedExpensesTarget;
+    group.variableExpensesTarget = targets.variableExpensesTarget;
+    group.savingsInvestmentTarget = targets.savingsInvestmentTarget;
     group.fixedExpensesOverspend = this.roundMoney(
       Math.max(0, group.fixedExpensesTotal - group.fixedExpensesTarget),
     );
@@ -754,22 +802,58 @@ export class HistoryService {
     group.remaining = this.roundMoney(group.salary - group.occupied);
   }
 
-  private resolveFixedExpensesTarget(
+  private resolveHistoryTargets(
     budget: MonthlyBudgetRecord | undefined,
     salary: number,
-  ): number {
-    return this.roundMoney(
+    fixedExpensesBaseTotal: number,
+  ): Pick<
+    HistoryGroup,
+    'fixedExpensesTarget' | 'variableExpensesTarget' | 'savingsInvestmentTarget'
+  > {
+    const defaultFixedExpensesTarget = this.roundMoney(
       budget?.fixedExpensesTarget ?? (salary > 0 ? salary * 0.5 : 0),
     );
-  }
-
-  private resolveVariableExpensesTarget(
-    budget: MonthlyBudgetRecord | undefined,
-    salary: number,
-  ): number {
-    return this.roundMoney(
+    const defaultVariableExpensesTarget = this.roundMoney(
       budget?.variableExpensesTarget ?? (salary > 0 ? salary * 0.2 : 0),
     );
+
+    if (fixedExpensesBaseTotal <= 0) {
+      return {
+        fixedExpensesTarget: defaultFixedExpensesTarget,
+        variableExpensesTarget: defaultVariableExpensesTarget,
+        savingsInvestmentTarget: this.roundMoney(
+          Math.max(
+            0,
+            salary - defaultFixedExpensesTarget - defaultVariableExpensesTarget,
+          ),
+        ),
+      };
+    }
+
+    const fixedExpensesTarget = this.roundMoney(fixedExpensesBaseTotal);
+    const remainingAfterFixedExpenses = this.roundMoney(
+      Math.max(0, salary - fixedExpensesTarget),
+    );
+    const variableExpensesTarget = budget?.isVariableExpensesModified
+      ? this.roundMoney(
+          Math.max(
+            0,
+            Math.min(
+              budget.variableExpensesTarget ?? defaultVariableExpensesTarget,
+              remainingAfterFixedExpenses,
+            ),
+          ),
+        )
+      : this.roundMoney(remainingAfterFixedExpenses * 0.4);
+    const savingsInvestmentTarget = this.roundMoney(
+      Math.max(0, salary - fixedExpensesTarget - variableExpensesTarget),
+    );
+
+    return {
+      fixedExpensesTarget,
+      variableExpensesTarget,
+      savingsInvestmentTarget,
+    };
   }
 
   /**
