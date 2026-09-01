@@ -181,6 +181,21 @@ describe('HistoryService', () => {
             gainLossUsd: 5,
           }),
         },
+        {
+          id: 'yield',
+          data: () => ({
+            userId: 'uid-1',
+            ticker: 'Rendimiento',
+            transactionType: 'rendimiento',
+            transactionDate: '2025-06-30',
+            creditedDate: '2025-07-01',
+            amount: 1000.5,
+            platform: 'Mercado Pago',
+            averagePurchasePrice: 0,
+            quantity: 0,
+            currency: 'ARS',
+          }),
+        },
       ],
       monthlyBudgets: [],
     });
@@ -190,6 +205,9 @@ describe('HistoryService', () => {
     expect(file.content).toContain('Seguro ""auto""');
     expect(file.content).toContain('"No"');
     expect(file.content).toContain('"Banco"');
+    expect(file.content).toContain('"Rendimiento"');
+    expect(file.content).toContain('"Mercado Pago"');
+    expect(file.content).toContain('"01-07-2025"');
     expect(file.content).toContain('"Si"');
     expect(file.content).not.toContain('Futuro');
   });

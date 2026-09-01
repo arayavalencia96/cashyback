@@ -213,10 +213,12 @@ export class HistoryService {
       [],
       ['Inversiones'],
       [
+        'Tipo',
         'Ticker',
-        'Monto invertido',
+        'Monto',
         'Plataforma',
         'Fecha inversion',
+        'Fecha acreditacion',
         'Finalizada',
         'Notas',
         'Cantidad',
@@ -250,10 +252,12 @@ export class HistoryService {
     item: SummaryHistoryItem & { kind: 'investment' },
   ): string[] {
     return [
+      this.transactionTypeLabel(item.transactionType),
       item.ticker ?? item.title,
-      String(item.investmentAmount ?? item.amount),
+      String(this.displayInvestmentAmount(item)),
       item.platform ?? '',
       this.formatDisplayDate(item.transactionDate ?? item.date),
+      item.creditedDate ? this.formatDisplayDate(item.creditedDate) : '',
       item.isCompleted ? 'Si' : 'No',
       item.notes || '',
       this.formatOptionalNumber(item.quantity),
@@ -277,6 +281,16 @@ export class HistoryService {
     return value !== undefined ? String(value) : '';
   }
 
+  private displayInvestmentAmount(
+    item: SummaryHistoryItem & { kind: 'investment' },
+  ): number {
+    const amount = item.investmentAmount ?? item.amount;
+
+    return item.transactionType === 'rendimiento'
+      ? this.roundMoney(Math.abs(amount))
+      : amount;
+  }
+
   /**
    * Convierte un valor de venta opcional a texto para su exportación.
    *
@@ -285,6 +299,22 @@ export class HistoryService {
    */
   private formatOptionalSaleValue(value: number | null | undefined): string {
     return value !== undefined && value !== null ? String(value) : '';
+  }
+
+  private transactionTypeLabel(
+    type: SummaryHistoryItem['transactionType'],
+  ): string {
+    switch (type) {
+      case 'venta':
+        return 'Venta';
+      case 'ahorro':
+        return 'Ahorro';
+      case 'rendimiento':
+        return 'Rendimiento';
+      case 'compra':
+      default:
+        return 'Compra';
+    }
   }
 
   /**
@@ -444,7 +474,10 @@ export class HistoryService {
     const hasPromotion = data.hasPromotion ?? (data.coveredBy ?? 0) > 0;
 
     return this.roundMoney(
-      Math.max(0, (data.amount ?? 0) - (hasPromotion ? (data.coveredBy ?? 0) : 0)),
+      Math.max(
+        0,
+        (data.amount ?? 0) - (hasPromotion ? (data.coveredBy ?? 0) : 0),
+      ),
     );
   }
 
@@ -487,7 +520,11 @@ export class HistoryService {
       kind: 'investment' as const,
       id: item.id,
       title:
-        item.data.transactionType === 'ahorro' ? 'Ahorro' : item.data.ticker,
+        item.data.transactionType === 'ahorro'
+          ? 'Ahorro'
+          : item.data.transactionType === 'rendimiento'
+            ? 'Rendimiento'
+            : item.data.ticker,
       amount: investedAmount,
       category: item.data.platform,
       notes: item.data.notes ?? '',
@@ -504,6 +541,7 @@ export class HistoryService {
       transactionType: item.data.transactionType,
       transactionDate,
       saleDate: item.data.saleDate ?? null,
+      creditedDate: item.data.creditedDate ?? null,
       saleDollarMepValue: item.data.saleDollarMepValue ?? null,
       isCompleted: item.data.transactionType === 'venta',
       gainLossArs: item.data.gainLossArs ?? 0,
@@ -518,11 +556,17 @@ export class HistoryService {
    * @returns Monto redondeado invertido en el movimiento.
    */
   private calculateInvestedAmount(data: InvestmentRecord): number {
-    return data.transactionType === 'ahorro'
-      ? this.roundMoney(data.amount ?? 0)
-      : this.roundMoney(
-          (data.quantity ?? 0) * (data.averagePurchasePrice ?? 0),
-        );
+    if (data.transactionType === 'ahorro') {
+      return this.roundMoney(data.amount ?? 0);
+    }
+
+    if (data.transactionType === 'rendimiento') {
+      return this.roundMoney((data.amount ?? 0) * -1);
+    }
+
+    return this.roundMoney(
+      (data.quantity ?? 0) * (data.averagePurchasePrice ?? 0),
+    );
   }
 
   /**

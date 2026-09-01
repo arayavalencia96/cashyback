@@ -1,5 +1,7 @@
 export type CurrencyCode = 'ARS' | 'USD';
-export type InvestmentPlatform = 'IOL' | 'BingX' | 'BullMarket' | 'Nexo';
+export type InvestmentPlatform = string;
+export type InvestmentTransactionType =
+  'compra' | 'venta' | 'ahorro' | 'rendimiento';
 
 export interface FixedExpenseRecord {
   userId: string;
@@ -34,10 +36,11 @@ export interface VariableExpenseRecord {
 export interface InvestmentRecord {
   userId: string;
   ticker: string;
-  transactionType: 'compra' | 'venta' | 'ahorro';
+  transactionType: InvestmentTransactionType;
   transactionDate?: string;
   purchaseDate?: string;
   saleDate?: string | null;
+  creditedDate?: string | null;
   amount: number;
   gainLossArs?: number;
   gainLossUsd?: number;
@@ -83,9 +86,10 @@ export interface SummaryHistoryItem {
   paidAt?: string;
   gainLossArs?: number;
   gainLossUsd?: number;
-  transactionType?: 'compra' | 'venta' | 'ahorro';
+  transactionType?: InvestmentTransactionType;
   transactionDate?: string;
   saleDate?: string | null;
+  creditedDate?: string | null;
   saleDollarMepValue?: number | null;
   isCompleted?: boolean;
 }
