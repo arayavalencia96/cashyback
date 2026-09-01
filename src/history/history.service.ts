@@ -82,10 +82,17 @@ export class HistoryService {
       ['Mes', this.labelFor(group)],
       ['Sueldo', String(group.salary)],
       ['Total gastos fijos', String(group.fixedExpensesTotal)],
+      ['Objetivo gastos fijos', String(group.fixedExpensesTarget)],
+      ['Fijos de más', String(group.fixedExpensesOverspend)],
       ['Total variables', String(group.variableExpensesTotal)],
+      ['Objetivo variables', String(group.variableExpensesTarget)],
+      ['Variables de más', String(group.variableExpensesOverspend)],
       ['Total inversiones', String(group.investmentsTotal)],
       ['Ocupado', String(group.occupied)],
-      ['Restante', String(group.remaining)],
+      [
+        group.remaining < 0 ? 'Gastado de más' : 'Restante',
+        String(Math.abs(group.remaining)),
+      ],
     ];
   }
 
@@ -152,7 +159,16 @@ export class HistoryService {
     rows.push(
       [],
       ['Gastos variables'],
-      ['Titulo', 'Monto', 'Categoria', 'Notas', 'Moneda', 'Fecha gasto'],
+      [
+        'Titulo',
+        'Monto',
+        'Monto cubierto por promocion',
+        'Monto final',
+        'Categoria',
+        'Notas',
+        'Moneda',
+        'Fecha gasto',
+      ],
     );
 
     const variableItems = group.items.filter(
@@ -177,6 +193,8 @@ export class HistoryService {
     return [
       item.title,
       String(item.amount),
+      String(item.coveredBy ?? 0),
+      String(item.finalAmount ?? item.amount),
       item.category,
       item.notes || '',
       item.currency ?? '',
@@ -315,7 +333,7 @@ export class HistoryService {
       ]);
 
     const budgetMap = new Map(
-      budgets.map((item) => [item.data.monthKey, item.data.salary]),
+      budgets.map((item) => [item.data.monthKey, item.data]),
     );
     const currentMonthStart = this.getCurrentMonthStart();
 
@@ -382,7 +400,10 @@ export class HistoryService {
       id: item.id,
       title: item.data.description,
       amount: item.data.amount,
-      budgetAmount: item.data.amountArs ?? item.data.amount,
+      budgetAmount:
+        item.data.category === 'Comida'
+          ? (item.data.spentAmount ?? item.data.amountArs ?? item.data.amount)
+          : (item.data.amountArs ?? item.data.amount),
       category: item.data.category,
       notes: item.data.notes,
       currency: item.data.currency,
@@ -408,12 +429,44 @@ export class HistoryService {
       id: item.id,
       title: item.data.description,
       amount: item.data.amount,
-      budgetAmount: item.data.amountArs ?? item.data.amount,
+      budgetAmount: this.calculateVariableBudgetAmount(item.data),
       category: item.data.category,
       notes: item.data.notes,
       currency: item.data.currency,
+      hasPromotion: item.data.hasPromotion ?? (item.data.coveredBy ?? 0) > 0,
+      coveredBy: item.data.coveredBy ?? 0,
+      finalAmount: this.calculateVariableFinalAmount(item.data),
       date: item.data.expenseDate,
     };
+  }
+
+  private calculateVariableFinalAmount(data: VariableExpenseRecord): number {
+    const hasPromotion = data.hasPromotion ?? (data.coveredBy ?? 0) > 0;
+
+    return this.roundMoney(
+      Math.max(0, (data.amount ?? 0) - (hasPromotion ? (data.coveredBy ?? 0) : 0)),
+    );
+  }
+
+  private calculateVariableBudgetAmount(data: VariableExpenseRecord): number {
+    if (data.budgetImpact !== undefined && data.budgetImpact !== null) {
+      return this.roundMoney(data.budgetImpact);
+    }
+
+    const baseAmount = data.amountArs ?? data.amount;
+
+    const hasPromotion = data.hasPromotion ?? (data.coveredBy ?? 0) > 0;
+
+    if (!hasPromotion || (data.coveredBy ?? 0) <= 0) {
+      return this.roundMoney(baseAmount);
+    }
+
+    const coveredByArs =
+      data.currency === 'USD' && data.exchangeRate
+        ? this.roundMoney((data.coveredBy ?? 0) * data.exchangeRate)
+        : (data.coveredBy ?? 0);
+
+    return this.roundMoney(Math.max(0, baseAmount - coveredByArs));
   }
 
   /**
@@ -481,7 +534,7 @@ export class HistoryService {
    */
   private groupHistoryItems(
     items: Array<SummaryHistoryItem>,
-    budgetMap: Map<string, number>,
+    budgetMap: Map<string, MonthlyBudgetRecord>,
   ): Map<string, HistoryGroup> {
     const groups = new Map<string, HistoryGroup>();
 
@@ -524,7 +577,7 @@ export class HistoryService {
     item: SummaryHistoryItem,
     date: Date,
     monthKey: string,
-    budgetMap: Map<string, number>,
+    budgetMap: Map<string, MonthlyBudgetRecord>,
   ): HistoryGroup {
     const totals = this.calculateItemTotals(item);
     const occupied = this.roundMoney(
@@ -532,14 +585,28 @@ export class HistoryService {
         totals.variableExpensesTotal +
         totals.investmentsTotal,
     );
-    const salary = this.roundMoney(budgetMap.get(monthKey) ?? 0);
+    const budget = budgetMap.get(monthKey);
+    const salary = this.roundMoney(budget?.salary ?? 0);
+    const fixedExpensesTarget = this.resolveFixedExpensesTarget(budget, salary);
+    const variableExpensesTarget = this.resolveVariableExpensesTarget(
+      budget,
+      salary,
+    );
 
     return {
       month: date.getMonth() + 1,
       year: date.getFullYear(),
       salary,
+      fixedExpensesTarget,
+      variableExpensesTarget,
       fixedExpensesTotal: totals.fixedExpensesTotal,
       variableExpensesTotal: totals.variableExpensesTotal,
+      fixedExpensesOverspend: this.roundMoney(
+        Math.max(0, totals.fixedExpensesTotal - fixedExpensesTarget),
+      ),
+      variableExpensesOverspend: this.roundMoney(
+        Math.max(0, totals.variableExpensesTotal - variableExpensesTarget),
+      ),
       investmentsTotal: totals.investmentsTotal,
       occupied,
       remaining: this.roundMoney(salary - occupied),
@@ -581,7 +648,7 @@ export class HistoryService {
     group: HistoryGroup,
     item: SummaryHistoryItem,
     monthKey: string,
-    budgetMap: Map<string, number>,
+    budgetMap: Map<string, MonthlyBudgetRecord>,
   ): void {
     group.items.push(item);
     this.updateGroupTotals(group, item, monthKey, budgetMap);
@@ -599,7 +666,7 @@ export class HistoryService {
     group: HistoryGroup,
     item: SummaryHistoryItem,
     monthKey: string,
-    budgetMap: Map<string, number>,
+    budgetMap: Map<string, MonthlyBudgetRecord>,
   ): void {
     switch (item.kind) {
       case 'fixed-expense':
@@ -624,8 +691,41 @@ export class HistoryService {
         group.variableExpensesTotal +
         group.investmentsTotal,
     );
-    group.salary = this.roundMoney(budgetMap.get(monthKey) ?? group.salary);
+    const budget = budgetMap.get(monthKey);
+    group.salary = this.roundMoney(budget?.salary ?? group.salary);
+    group.fixedExpensesTarget = this.resolveFixedExpensesTarget(
+      budget,
+      group.salary,
+    );
+    group.variableExpensesTarget = this.resolveVariableExpensesTarget(
+      budget,
+      group.salary,
+    );
+    group.fixedExpensesOverspend = this.roundMoney(
+      Math.max(0, group.fixedExpensesTotal - group.fixedExpensesTarget),
+    );
+    group.variableExpensesOverspend = this.roundMoney(
+      Math.max(0, group.variableExpensesTotal - group.variableExpensesTarget),
+    );
     group.remaining = this.roundMoney(group.salary - group.occupied);
+  }
+
+  private resolveFixedExpensesTarget(
+    budget: MonthlyBudgetRecord | undefined,
+    salary: number,
+  ): number {
+    return this.roundMoney(
+      budget?.fixedExpensesTarget ?? (salary > 0 ? salary * 0.5 : 0),
+    );
+  }
+
+  private resolveVariableExpensesTarget(
+    budget: MonthlyBudgetRecord | undefined,
+    salary: number,
+  ): number {
+    return this.roundMoney(
+      budget?.variableExpensesTarget ?? (salary > 0 ? salary * 0.2 : 0),
+    );
   }
 
   /**

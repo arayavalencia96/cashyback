@@ -7,6 +7,7 @@ export interface FixedExpenseRecord {
   expenseDate: string;
   amount: number;
   amountArs?: number | null;
+  spentAmount?: number;
   category: string;
   notes: string;
   currency: CurrencyCode;
@@ -21,9 +22,13 @@ export interface VariableExpenseRecord {
   expenseDate: string;
   amount: number;
   amountArs?: number | null;
+  exchangeRate?: number | null;
   category: string;
   notes: string;
   currency: CurrencyCode;
+  hasPromotion?: boolean;
+  coveredBy?: number;
+  budgetImpact?: number | null;
 }
 
 export interface InvestmentRecord {
@@ -49,6 +54,8 @@ export interface MonthlyBudgetRecord {
   userId: string;
   monthKey: string;
   salary: number;
+  fixedExpensesTarget?: number | null;
+  variableExpensesTarget?: number | null;
 }
 
 export interface SummaryHistoryItem {
@@ -60,6 +67,9 @@ export interface SummaryHistoryItem {
   category: string;
   notes: string;
   currency?: CurrencyCode;
+  hasPromotion?: boolean;
+  coveredBy?: number;
+  finalAmount?: number;
   platform?: InvestmentPlatform;
   ticker?: string;
   investmentAmount?: number;
@@ -84,8 +94,12 @@ export interface HistoryGroup {
   month: number;
   year: number;
   salary: number;
+  fixedExpensesTarget: number;
+  variableExpensesTarget: number;
   fixedExpensesTotal: number;
   variableExpensesTotal: number;
+  fixedExpensesOverspend: number;
+  variableExpensesOverspend: number;
   investmentsTotal: number;
   occupied: number;
   remaining: number;
