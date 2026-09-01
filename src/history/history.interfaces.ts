@@ -59,6 +59,7 @@ export interface MonthlyBudgetRecord {
   salary: number;
   fixedExpensesTarget?: number | null;
   variableExpensesTarget?: number | null;
+  isVariableExpensesModified?: boolean;
 }
 
 export interface SummaryHistoryItem {
@@ -67,6 +68,7 @@ export interface SummaryHistoryItem {
   title: string;
   amount: number;
   budgetAmount?: number;
+  targetAmount?: number;
   category: string;
   notes: string;
   currency?: CurrencyCode;
@@ -99,7 +101,9 @@ export interface HistoryGroup {
   year: number;
   salary: number;
   fixedExpensesTarget: number;
+  fixedExpensesBaseTotal: number;
   variableExpensesTarget: number;
+  savingsInvestmentTarget: number;
   fixedExpensesTotal: number;
   variableExpensesTotal: number;
   fixedExpensesOverspend: number;
