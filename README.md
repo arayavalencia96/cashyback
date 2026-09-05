@@ -60,6 +60,7 @@ Creá un archivo `.env` en la raíz de `cashyback`:
 PORT=3000
 
 FIREBASE_CREDENTIALS_PATH=./configuration-firebase.json
+FIREBASE_SERVICE_ACCOUNT_JSON=
 FIREBASE_STORAGE_BUCKET=cashy-cd3e6.firebasestorage.app
 FIREBASE_WEB_PUSH_PUBLIC_KEY=tu_clave_vapid_publica
 
@@ -83,7 +84,7 @@ DUE_SOON_REMINDER_DAYS=3
 
 | Variable                           | Uso                                                      |
 | ---------------------------------- | -------------------------------------------------------- |
-| `FIREBASE_CREDENTIALS_PATH`        | Ruta al JSON de la cuenta de servicio de Firebase Admin. |
+| `FIREBASE_CREDENTIALS_PATH` o `FIREBASE_SERVICE_ACCOUNT_JSON` | Credenciales de Firebase Admin mediante archivo local o JSON. |
 | `BREVO_API_KEY`                    | Credencial para enviar correos transaccionales.          |
 | `BREVO_SENDER_EMAIL` o `MAIL_FROM` | Remitente verificado en Brevo.                           |
 
