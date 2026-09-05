@@ -23,10 +23,13 @@ import { FirebaseAdminService } from './firebase.service';
 
 describe('FirebaseAdminService', () => {
   const originalCredentialsPath = process.env.FIREBASE_CREDENTIALS_PATH;
+  const originalServiceAccountJson =
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.FIREBASE_CREDENTIALS_PATH = 'firebase.json';
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   });
 
   afterAll(() => {
@@ -34,6 +37,12 @@ describe('FirebaseAdminService', () => {
       delete process.env.FIREBASE_CREDENTIALS_PATH;
     } else {
       process.env.FIREBASE_CREDENTIALS_PATH = originalCredentialsPath;
+    }
+
+    if (originalServiceAccountJson === undefined) {
+      delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    } else {
+      process.env.FIREBASE_SERVICE_ACCOUNT_JSON = originalServiceAccountJson;
     }
   });
 
@@ -104,6 +113,30 @@ describe('FirebaseAdminService', () => {
     expect(initializeApp).toHaveBeenCalledWith({
       credential: undefined,
       storageBucket: 'cashy.firebasestorage.app',
+    });
+  });
+
+  it('initializes Firebase from the Railway service account variable', () => {
+    const app = { name: 'railway-cashy' };
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON = JSON.stringify({
+      type: 'service_account',
+      project_id: 'cashy',
+      client_email: 'firebase@cashy.app',
+      private_key:
+        '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----',
+    });
+    jest.mocked(getApps).mockReturnValue([]);
+    jest.mocked(initializeApp).mockReturnValue(app as never);
+
+    new FirebaseAdminService();
+
+    expect(existsSync).not.toHaveBeenCalled();
+    expect(readFileSync).not.toHaveBeenCalled();
+    expect(cert).toHaveBeenCalledWith({
+      projectId: 'cashy',
+      clientEmail: 'firebase@cashy.app',
+      privateKey:
+        '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----',
     });
   });
 
