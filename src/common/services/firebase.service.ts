@@ -12,6 +12,13 @@ import type { ServiceAccount } from 'firebase-admin';
 
 import { readOptionalEnv, readRequiredEnv } from '../env';
 
+type FirebaseServiceAccount = Partial<ServiceAccount> & {
+  type?: string;
+  project_id?: string;
+  private_key?: string;
+  client_email?: string;
+};
+
 @Injectable()
 export class FirebaseAdminService {
   private readonly app: App;
@@ -170,27 +177,9 @@ export class FirebaseAdminService {
       return getApp();
     }
 
-    const credentialsPath = resolve(
-      process.cwd(),
-      readRequiredEnv('FIREBASE_CREDENTIALS_PATH'),
-    );
+    const { serviceAccount, source } = this.readServiceAccount();
 
-    if (!existsSync(credentialsPath)) {
-      throw new Error(
-        `Firebase credentials file not found at: ${credentialsPath}`,
-      );
-    }
-
-    const serviceAccount = JSON.parse(
-      readFileSync(credentialsPath, 'utf8'),
-    ) as Partial<ServiceAccount> & {
-      type?: string;
-      project_id?: string;
-      private_key?: string;
-      client_email?: string;
-    };
-
-    this.validateServiceAccount(serviceAccount, credentialsPath);
+    this.validateServiceAccount(serviceAccount, source);
 
     return initializeApp({
       credential: cert({
@@ -204,6 +193,61 @@ export class FirebaseAdminService {
     });
   }
 
+  private readServiceAccount(): {
+    serviceAccount: FirebaseServiceAccount;
+    source: string;
+  } {
+    const serviceAccountJson = readOptionalEnv(
+      'FIREBASE_SERVICE_ACCOUNT_JSON',
+    );
+
+    if (serviceAccountJson) {
+      return {
+        serviceAccount: this.parseServiceAccount(
+          serviceAccountJson,
+          'FIREBASE_SERVICE_ACCOUNT_JSON',
+        ),
+        source: 'FIREBASE_SERVICE_ACCOUNT_JSON',
+      };
+    }
+
+    const credentialsPath = resolve(
+      process.cwd(),
+      readRequiredEnv('FIREBASE_CREDENTIALS_PATH'),
+    );
+
+    if (!existsSync(credentialsPath)) {
+      throw new Error(
+        `Firebase credentials file not found at: ${credentialsPath}`,
+      );
+    }
+
+    return {
+      serviceAccount: this.parseServiceAccount(
+        readFileSync(credentialsPath, 'utf8'),
+        credentialsPath,
+      ),
+      source: credentialsPath,
+    };
+  }
+
+  private parseServiceAccount(
+    content: string,
+    source: string,
+  ): FirebaseServiceAccount {
+    try {
+      const parsed: unknown = JSON.parse(content);
+
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Expected an object.');
+      }
+
+      return parsed as FirebaseServiceAccount;
+    } catch {
+      throw new Error(`Invalid Firebase service account JSON from ${source}.`);
+    }
+  }
+
   /**
    * Valida los campos obligatorios y la clave privada de la cuenta de servicio.
    *
@@ -212,13 +256,8 @@ export class FirebaseAdminService {
    * @throws Error Si faltan campos o la clave privada no tiene un formato válido.
    */
   private validateServiceAccount(
-    serviceAccount: Partial<ServiceAccount> & {
-      type?: string;
-      project_id?: string;
-      private_key?: string;
-      client_email?: string;
-    },
-    credentialsPath: string,
+    serviceAccount: FirebaseServiceAccount,
+    source: string,
   ): void {
     const missingFields = [
       serviceAccount.type === 'service_account' ? undefined : 'type',
@@ -229,7 +268,7 @@ export class FirebaseAdminService {
 
     if (missingFields.length > 0) {
       throw new Error(
-        `Invalid Firebase service account file at ${credentialsPath}. Missing or invalid fields: ${missingFields.join(', ')}`,
+        `Invalid Firebase service account at ${source}. Missing or invalid fields: ${missingFields.join(', ')}`,
       );
     }
 
@@ -238,7 +277,7 @@ export class FirebaseAdminService {
       !serviceAccount.private_key?.includes('END PRIVATE KEY')
     ) {
       throw new Error(
-        `Invalid Firebase service account file at ${credentialsPath}. private_key does not look valid.`,
+        `Invalid Firebase service account at ${source}. private_key does not look valid.`,
       );
     }
   }
