@@ -913,6 +913,7 @@ export class HistoryService {
       currency: item.data.currency,
       hasPromotion: item.data.hasPromotion ?? (item.data.coveredBy ?? 0) > 0,
       coveredBy: item.data.coveredBy ?? 0,
+      paidWithCreditCard: item.data.paidWithCreditCard ?? false,
       finalAmount: this.calculateVariableFinalAmount(item.data),
       date: item.data.expenseDate,
     };
@@ -930,6 +931,10 @@ export class HistoryService {
   }
 
   private calculateVariableBudgetAmount(data: VariableExpenseRecord): number {
+    if (data.paidWithCreditCard) {
+      return 0;
+    }
+
     if (data.budgetImpact !== undefined && data.budgetImpact !== null) {
       return this.roundMoney(data.budgetImpact);
     }

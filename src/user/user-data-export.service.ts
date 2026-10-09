@@ -443,6 +443,7 @@ export class UserDataExportService {
       this.column('monto_en_pesos', 'amountArs', 'money'),
       this.booleanColumn('tiene_promocion', 'hasPromotion'),
       this.column('monto_cubierto', 'coveredBy', 'money'),
+      this.booleanColumn('pagado_con_tarjeta_credito', 'paidWithCreditCard'),
       this.column('monto_restante', 'remainingAmount', 'money'),
       this.column('notas', 'notes'),
       this.column('fecha_creacion', 'createdAt', 'date_time'),
