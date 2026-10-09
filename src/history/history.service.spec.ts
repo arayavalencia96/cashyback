@@ -299,6 +299,21 @@ describe('HistoryService', () => {
             currency: 'ARS',
           }),
         },
+        {
+          id: 'variable-credit-card',
+          data: () => ({
+            userId: 'uid-1',
+            description: 'Delivery con tarjeta',
+            expenseDate: '2026-08-31',
+            amount: 50_000,
+            amountArs: 50_000,
+            budgetImpact: 50_000,
+            paidWithCreditCard: true,
+            category: 'Delivery',
+            notes: '',
+            currency: 'ARS',
+          }),
+        },
       ],
       investments: [
         {
