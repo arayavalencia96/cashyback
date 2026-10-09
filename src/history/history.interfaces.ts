@@ -30,6 +30,7 @@ export interface VariableExpenseRecord {
   currency: CurrencyCode;
   hasPromotion?: boolean;
   coveredBy?: number;
+  paidWithCreditCard?: boolean;
   budgetImpact?: number | null;
 }
 
@@ -74,6 +75,7 @@ export interface SummaryHistoryItem {
   currency?: CurrencyCode;
   hasPromotion?: boolean;
   coveredBy?: number;
+  paidWithCreditCard?: boolean;
   finalAmount?: number;
   platform?: InvestmentPlatform;
   ticker?: string;
