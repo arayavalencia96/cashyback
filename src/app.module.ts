@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { IntegrationModule } from './integration/integration.module';
 import { ConfigModule } from '@nestjs/config';
 
 import { CommonModule } from './common/common.module';
@@ -11,6 +12,7 @@ import { HealthController } from './health.controller';
 @Module({
   controllers: [HealthController],
   imports: [
+    IntegrationModule,
     ConfigModule.forRoot({
       isGlobal: true,
     }),
