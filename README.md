@@ -74,6 +74,16 @@ FRONTEND_URL=http://localhost:4200
 APP_BASE_URL=http://localhost:4200
 CORS_ALLOWED_ORIGINS=http://localhost:4200,https://cashy-cd3e6.web.app
 
+INTEGRATION_ENABLED=true
+INTEGRATION_PEER_API_URL=http://localhost:3001/api/v1
+INTEGRATION_PEER_FRONTEND_URL=http://localhost:5173
+INTEGRATION_CALLBACK_URL=http://localhost:4200/integrations/callback
+INTEGRATION_INBOUND_SECRET=secreto_recibido_desde_growly
+INTEGRATION_OUTBOUND_SECRET=secreto_enviado_hacia_growly
+INTEGRATION_REQUEST_TIMEOUT_MS=5000
+INTEGRATION_AUTHORIZATION_TTL_SECONDS=120
+INTEGRATION_RESERVATION_TTL_SECONDS=300
+
 REDIS_URL=redis://default:<password>@<host>:6379
 
 CRON_SECRET=un_secreto_largo_y_aleatorio
@@ -87,6 +97,12 @@ DUE_SOON_REMINDER_DAYS=3
 | `FIREBASE_CREDENTIALS_PATH` o `FIREBASE_SERVICE_ACCOUNT_JSON` | Credenciales de Firebase Admin mediante archivo local o JSON. |
 | `BREVO_API_KEY`                    | Credencial para enviar correos transaccionales.          |
 | `BREVO_SENDER_EMAIL` o `MAIL_FROM` | Remitente verificado en Brevo.                           |
+| `INTEGRATION_ENABLED`              | Debe ser `true` para vincular Cashy con Growly.           |
+| `INTEGRATION_PEER_API_URL`         | URL pública o local de Growly Back, incluyendo `/api/v1`. |
+| `INTEGRATION_PEER_FRONTEND_URL`    | URL pública o local de Growly Front.                     |
+| `INTEGRATION_CALLBACK_URL`         | Callback de Cashy Front para completar la vinculación.   |
+| `INTEGRATION_INBOUND_SECRET`       | Credencial que Cashy valida en solicitudes de Growly.    |
+| `INTEGRATION_OUTBOUND_SECRET`      | Credencial que Cashy envía al comunicarse con Growly.    |
 
 ### Variables opcionales
 
@@ -103,6 +119,9 @@ DUE_SOON_REMINDER_DAYS=3
 | `DUE_SOON_REMINDER_DAYS`       | `3`                                | Anticipación de recordatorios de vencimiento.                     |
 | `FIREBASE_DATABASE_ID`         | `(default)`                        | Identificador informativo de la base configurada.                 |
 | `FIREBASE_STORAGE_BUCKET`      | `<project-id>.firebasestorage.app` | Bucket utilizado para eliminar archivos privados de una cuenta.   |
+| `INTEGRATION_REQUEST_TIMEOUT_MS` | `5000`                           | Tiempo máximo de una solicitud entre backends.                    |
+| `INTEGRATION_AUTHORIZATION_TTL_SECONDS` | `120`                    | Vigencia de una autorización de vinculación.                      |
+| `INTEGRATION_RESERVATION_TTL_SECONDS` | `300`                      | Vigencia de una reserva de aporte.                                |
 
 El archivo de credenciales de Firebase no debe subirse al repositorio. `FIREBASE_CREDENTIALS_PATH` se resuelve desde el directorio de ejecución del backend.
 
@@ -398,6 +417,9 @@ src/
 ```
 
 ## Verificación
+
+El diseño, seguridad, presupuesto, desvinculación y endpoints de Growly se
+documentan en [`docs/INTEGRATION_GROWLY.md`](docs/INTEGRATION_GROWLY.md).
 
 ```bash
 npm run lint

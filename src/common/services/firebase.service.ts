@@ -197,9 +197,7 @@ export class FirebaseAdminService {
     serviceAccount: FirebaseServiceAccount;
     source: string;
   } {
-    const serviceAccountJson = readOptionalEnv(
-      'FIREBASE_SERVICE_ACCOUNT_JSON',
-    );
+    const serviceAccountJson = readOptionalEnv('FIREBASE_SERVICE_ACCOUNT_JSON');
 
     if (serviceAccountJson) {
       return {
@@ -242,7 +240,7 @@ export class FirebaseAdminService {
         throw new Error('Expected an object.');
       }
 
-      return parsed as FirebaseServiceAccount;
+      return parsed;
     } catch {
       throw new Error(`Invalid Firebase service account JSON from ${source}.`);
     }

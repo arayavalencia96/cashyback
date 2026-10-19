@@ -48,7 +48,6 @@ desktop.ini
 .env.test.local
 .env.production.local
 .env.local
-.env.integration.local
 .env.*.local
 
 # secrets / keys
