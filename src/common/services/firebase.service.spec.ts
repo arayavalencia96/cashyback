@@ -23,8 +23,7 @@ import { FirebaseAdminService } from './firebase.service';
 
 describe('FirebaseAdminService', () => {
   const originalCredentialsPath = process.env.FIREBASE_CREDENTIALS_PATH;
-  const originalServiceAccountJson =
-    process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const originalServiceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
   beforeEach(() => {
     jest.clearAllMocks();
