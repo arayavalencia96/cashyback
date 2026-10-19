@@ -60,3 +60,20 @@ npm run integration:check
 ```
 
 El check de integración requiere ambos backends iniciados y cuentas de prueba configuradas.
+
+### Diagnóstico en producción
+
+`integration_config_loaded` permite comparar las URLs y huellas truncadas de
+configuración sin registrar secretos. `inboundFingerprint` de Cashy debe
+coincidir con `outboundFingerprint` de Growly.
+
+- `integration_peer_credential_rejected`: Cashy recibió una credencial peer
+  ausente o diferente. El evento informa solamente presencia y longitudes.
+- `integration_link_start_*`: creación de la solicitud desde Cashy.
+- `integration_link_preview_*`: revisión de cuentas desde Growly.
+- `integration_link_approve_*`: consentimiento de Growly.
+- `integration_link_complete_*`: confirmación final desde Cashy.
+- `integration_request_failed`: estado HTTP y mensaje seguro devueltos por la
+  capa de integración.
+
+No se registran tokens, secretos, cuerpos, correos ni identificadores de usuario.
