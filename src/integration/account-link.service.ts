@@ -10,6 +10,7 @@ import {
   GoneException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -57,6 +58,8 @@ interface StoredLink extends AccountLinkView {
 
 @Injectable()
 export class AccountLinkService {
+  private readonly logger = new Logger(AccountLinkService.name);
+
   constructor(
     private readonly firebase: FirebaseAdminService,
     private readonly config: IntegrationConfig,
@@ -148,6 +151,9 @@ export class AccountLinkService {
     state: string,
     renew = false,
   ): Promise<StartLinkResult> {
+    this.logger.log(
+      JSON.stringify({ event: 'integration_link_start_started', renew }),
+    );
     this.config.assertEnabled();
     requireLinkToken(challenge);
     requireLinkToken(state);
@@ -178,6 +184,9 @@ export class AccountLinkService {
     });
     const url = new URL('/integrations/connect', this.config.peerFrontendUrl);
     url.hash = new URLSearchParams({ requestToken: token }).toString();
+    this.logger.log(
+      JSON.stringify({ event: 'integration_link_start_completed', renew }),
+    );
     return {
       requestToken: token,
       authorizationUrl: url.toString(),
@@ -190,6 +199,9 @@ export class AccountLinkService {
     growlyUserId: string,
     growlyEmail: string,
   ): Promise<LinkConsent> {
+    this.logger.log(
+      JSON.stringify({ event: 'integration_link_preview_started' }),
+    );
     this.config.assertEnabled();
     const request = this.validRequest(
       (await this.requestRef(token).get()).data() as StoredRequest | undefined,
@@ -215,6 +227,9 @@ export class AccountLinkService {
       growly.data() as { cashyUserId: string; linkId: string } | undefined,
       growlyUserId,
     );
+    this.logger.log(
+      JSON.stringify({ event: 'integration_link_preview_completed' }),
+    );
     return {
       cashyEmail: request.cashyEmail,
       growlyUserId,
@@ -233,6 +248,9 @@ export class AccountLinkService {
     growlyUserId: string,
     growlyEmail: string,
   ): Promise<LinkRedirect> {
+    this.logger.log(
+      JSON.stringify({ event: 'integration_link_approve_started' }),
+    );
     this.config.assertEnabled();
     const code = randomBytes(32).toString('base64url');
     const request = await this.firebase.firestore.runTransaction(async (tx) => {
@@ -274,6 +292,9 @@ export class AccountLinkService {
       });
       return data;
     });
+    this.logger.log(
+      JSON.stringify({ event: 'integration_link_approve_completed' }),
+    );
     return this.redirect({ requestToken: token, state: request.state, code });
   }
 
@@ -302,12 +323,15 @@ export class AccountLinkService {
     code: string,
     verifier: string,
   ): Promise<AccountLinkView> {
+    this.logger.log(
+      JSON.stringify({ event: 'integration_link_complete_started' }),
+    );
     this.config.assertEnabled();
     requireLinkToken(code);
     requireLinkToken(verifier);
     const proof = createHash('sha256').update(verifier).digest('base64url');
     const linkId = randomUUID();
-    return this.firebase.firestore.runTransaction(async (tx) => {
+    const link = await this.firebase.firestore.runTransaction(async (tx) => {
       const ref = this.requestRef(token);
       const request = this.validRequest(
         (await tx.get(ref)).data() as StoredRequest | undefined,
@@ -421,6 +445,10 @@ export class AccountLinkService {
       tx.update(ref, { status: 'completed', linkId });
       return this.view(link);
     });
+    this.logger.log(
+      JSON.stringify({ event: 'integration_link_complete_completed' }),
+    );
+    return link;
   }
 
   private assertLinkAvailability(

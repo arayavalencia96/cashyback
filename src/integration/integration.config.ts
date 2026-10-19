@@ -1,8 +1,14 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'node:crypto';
 
 @Injectable()
 export class IntegrationConfig {
+  private readonly logger = new Logger(IntegrationConfig.name);
   readonly enabled: boolean;
   readonly peerApiUrl: string;
   readonly peerFrontendUrl: string;
@@ -89,6 +95,26 @@ export class IntegrationConfig {
       300,
       1800,
     );
+    this.logger.log(
+      JSON.stringify({
+        event: 'integration_config_loaded',
+        enabled: this.enabled,
+        peerApiUrl: this.peerApiUrl,
+        peerFrontendUrl: this.peerFrontendUrl,
+        callbackUrl: this.callbackUrl,
+        inboundSecretLength: this.inboundSecret.length,
+        outboundSecretLength: this.outboundSecret.length,
+        inboundFingerprint: this.fingerprint(this.inboundSecret),
+        outboundFingerprint: this.fingerprint(this.outboundSecret),
+        requestTimeoutMs: this.requestTimeoutMs,
+      }),
+    );
+  }
+
+  private fingerprint(value: string): string {
+    return value
+      ? createHash('sha256').update(value).digest('hex').slice(0, 12)
+      : '';
   }
 
   assertEnabled(): void {
